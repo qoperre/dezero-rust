@@ -132,6 +132,7 @@ def main():
     gen_newton()
     gen_tensor_ops()
     gen_broadcast_matrix()
+    gen_nn()
 
 
 def gen_higher_order():
@@ -338,6 +339,121 @@ def gen_broadcast_matrix():
     }
     for tag, opname, a, b in acases:
         binary(f"bcast_{tag}", ops[opname], a, b)
+
+def gen_nn():
+    """Steps 41-48: matmul, linear, activations, losses, and a full training run.
+
+    Every weight is shipped explicitly. Rust's `rand` will never reproduce
+    numpy's stream, so "seed both sides" is not an option -- see
+    docs/ARCHITECTURE.md.
+    """
+    np.random.seed(3)
+
+    # --- step 41: matmul -------------------------------------------------
+    for tag, a_shape, b_shape in (("2x3_3x4", (2, 3), (3, 4)), ("1x3_3x1", (1, 3), (3, 1))):
+        a = np.random.randn(*a_shape)
+        b = np.random.randn(*b_shape)
+        binary(f"matmul_{tag}", F.matmul, a, b)
+
+    # --- step 42-43: linear, sigmoid, relu, mean_squared_error ------------
+    x = np.random.randn(4, 3)
+    W = np.random.randn(3, 2)
+    b = np.random.randn(2)
+
+    v_x, v_W, v_b = Variable(x.copy()), Variable(W.copy()), Variable(b.copy())
+    y = F.linear(v_x, v_W, v_b)
+    F.sum(y).backward()
+    write_fixture(
+        "linear",
+        {
+            "x": arr(x), "W": arr(W), "b": arr(b),
+            "output": arr(y.data),
+            "gx": arr(v_x.grad.data), "gW": arr(v_W.grad.data), "gb": arr(v_b.grad.data),
+        },
+    )
+
+    unary("sigmoid", F.sigmoid, np.array([[-2.0, -0.5, 0.0], [0.5, 1.0, 2.0]]))
+    unary("relu", F.relu, np.array([[-2.0, -0.5, 0.0], [0.5, 1.0, 2.0]]))
+
+    p_, t_ = np.random.randn(4, 2), np.random.randn(4, 2)
+    binary("mean_squared_error", F.mean_squared_error, p_, t_)
+
+    # --- step 47: softmax and softmax_cross_entropy -----------------------
+    logits = np.random.randn(4, 3)
+    unary("softmax", lambda v: F.softmax(v), logits)
+
+    labels = np.array([0, 2, 1, 0])
+    v = Variable(logits.copy())
+    loss = F.softmax_cross_entropy(v, labels)
+    loss.backward()
+    write_fixture(
+        "softmax_cross_entropy",
+        {
+            "logits": arr(logits), "labels": labels.tolist(),
+            "output": arr(loss.data), "grad": arr(v.grad.data),
+        },
+    )
+
+    gen_training_run()
+
+
+def gen_training_run():
+    """Step 42/44-46: a full two-layer training run, weights pinned.
+
+    This is the integration fixture -- if Layer/Parameter/Optimizer/loss all
+    work together, the loss trace matches step for step.
+    """
+    import dezero
+    from dezero import Model, optimizers
+    import dezero.layers as L
+
+    np.random.seed(4)
+    x = np.random.rand(20, 1)
+    y = np.sin(2 * np.pi * x) + np.random.rand(20, 1)
+
+    W1 = np.random.randn(1, 10) * 0.01
+    b1 = np.zeros(10)
+    W2 = np.random.randn(10, 1) * 0.01
+    b2 = np.zeros(1)
+
+    class TwoLayer(Model):
+        def __init__(self):
+            super().__init__()
+            self.l1 = L.Linear(10, in_size=1)
+            self.l2 = L.Linear(1, in_size=10)
+
+        def forward(self, t):
+            return self.l2(F.sigmoid(self.l1(t)))
+
+    model = TwoLayer()
+    model.l1.W.data = W1.copy()
+    model.l1.b.data = b1.copy()
+    model.l2.W.data = W2.copy()
+    model.l2.b.data = b2.copy()
+
+    opt = optimizers.SGD(lr=0.2).setup(model)
+
+    losses = []
+    for _ in range(50):
+        pred = model(Variable(x))
+        loss = F.mean_squared_error(pred, Variable(y))
+        model.cleargrads()
+        loss.backward()
+        opt.update()
+        losses.append(float(loss.data))
+
+    write_fixture(
+        "training_two_layer",
+        {
+            "x": arr(x), "y": arr(y),
+            "W1": arr(W1), "b1": arr(b1), "W2": arr(W2), "b2": arr(b2),
+            "lr": 0.2, "iterations": 50,
+            "losses": losses,
+            "final_W1": arr(model.l1.W.data), "final_b1": arr(model.l1.b.data),
+            "final_W2": arr(model.l2.W.data), "final_b2": arr(model.l2.b.data),
+        },
+    )
+
 
 if __name__ == "__main__":
     main()
