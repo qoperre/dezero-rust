@@ -15,8 +15,8 @@
 //!   and the driver that connects the two.
 //! * [`Variable::backward`] — generation-ordered reverse-mode differentiation.
 //! * [`no_grad`] / [`test_mode`] — scoped configuration.
-//! * arithmetic ([`add`], [`mul`], ...) with full operator sugar, and
-//!   [`square`] / [`exp`].
+//! * arithmetic ([`add`], [`mul`], ...) with full operator sugar, and the
+//!   elementary functions [`square`], [`exp`], [`sin`], [`cos`], [`tanh`].
 //!
 //! # Example
 //!
@@ -50,6 +50,26 @@
 //! assert_eq!(x.grad().and_then(|g| g.data()), Variable::from_scalar(12.0).data()); // 6x
 //! ```
 //!
+//! Repeat the `cleargrad` + `backward_with(.., true)` pair and the derivatives
+//! keep coming — step 34's `sin` cycle, to any order:
+//!
+//! ```
+//! use dezero::{sin, Variable};
+//!
+//! let x = Variable::from_scalar(1.0);
+//! let y = sin(&x);
+//! y.backward_with(false, true);
+//!
+//! let mut derivative = x.grad().expect("y'");
+//! for _ in 0..3 {
+//!     x.cleargrad();
+//!     derivative.backward_with(false, true);
+//!     derivative = x.grad().expect("the next derivative");
+//! }
+//! // sin -> cos -> -sin -> -cos -> sin: the fourth derivative is sin again.
+//! assert!((derivative.data().expect("data").sum() - 1.0_f64.sin()).abs() < 1e-12);
+//! ```
+//!
 //! # Not yet implemented
 //!
 //! Broadcasting between differently shaped operands (step 40) is rejected with
@@ -67,5 +87,5 @@ pub use crate::core::config::{ConfigGuard, enable_backprop, is_train, no_grad, t
 pub use crate::core::function::{Function, FunctionInner, Op, apply, apply1};
 pub use crate::core::ops::{Add, Div, Mul, Neg, Pow, Sub, add, div, mul, neg, pow, sub};
 pub use crate::core::variable::{Variable, VariableInner};
-pub use crate::functions::basic_math::{Exp, Square, exp, square};
+pub use crate::functions::basic_math::{Cos, Exp, Sin, Square, Tanh, cos, exp, sin, square, tanh};
 pub use crate::utils::{GradientCheckError, GradientMismatch, gradient_check, numerical_diff};

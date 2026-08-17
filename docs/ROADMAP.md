@@ -57,15 +57,15 @@ automatic → recursion → loop.
 
 The hard part: backward must itself build a graph (`create_graph`).
 
-- ☐ 27 — `sin`, Taylor-series approximation
-- ☐ 28 — gradient descent (Rosenbrock)
-- ☐ 29 — Newton's method with a hand-written 2nd derivative
-- ☐ 30 — ▨ what an automatic 2nd derivative requires
-- ☐ 31 — ▨ theory: `grad` as a `Variable`
-- ☐ 32 — ▨ theory: double-backprop design
-- ☐ 33 — automatic 2nd derivative → Newton's method
-- ☐ 34 — `sin`/`cos` higher-order derivatives
-- ☐ 35 — `tanh` + deep derivative graph
+- ☑ 27 — `sin`, Taylor-series approximation
+- ☑ 28 — gradient descent (Rosenbrock)
+- ☑ 29 — Newton's method with a hand-written 2nd derivative
+- ☑ 30 — ▨ what an automatic 2nd derivative requires
+- ☑ 31 — ▨ theory: `grad` as a `Variable`
+- ☑ 32 — ▨ theory: double-backprop design
+- ☑ 33 — automatic 2nd derivative → Newton's method
+- ☑ 34 — `sin`/`cos` higher-order derivatives
+- ☑ 35 — `tanh` + deep derivative graph
 
 ## Phase 6 — Tensor operations (steps 36–40)
 

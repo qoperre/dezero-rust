@@ -40,7 +40,10 @@ use crate::core::variable::Variable;
 // ---------------------------------------------------------------------------
 
 /// Destructures a slice expected to hold exactly one element.
-fn one<'a, T>(items: &'a [T], op: &str, role: &str) -> &'a T {
+///
+/// `pub(crate)` so the unary ops in [`crate::functions`] share the wording of
+/// the arity panics rather than re-spelling it once per op.
+pub(crate) fn one<'a, T>(items: &'a [T], op: &str, role: &str) -> &'a T {
     let [item] = items else {
         panic!("dezero: {op} expects exactly 1 {role}, got {}", items.len());
     };

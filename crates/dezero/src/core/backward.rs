@@ -388,6 +388,126 @@ mod tests {
         assert!(gx.creator().is_none());
     }
 
+    // -- steps 28-33: optimisation driven by the backward pass -------------
+
+    /// Moves `v` one gradient-descent step of size `lr`.
+    fn descend(v: &Variable, lr: f64) {
+        let step = lr * grad_of(v);
+        v.set_data(v.data().expect("data") - step);
+    }
+
+    /// step 28: gradient descent on the Rosenbrock function. The gradient at
+    /// the book's starting point is exactly `(-2, 400)`, and 1000 steps of
+    /// `lr = 0.001` crawl up the valley to roughly `(0.68, 0.47)`.
+    #[test]
+    fn step28_gradient_descent_on_rosenbrock() {
+        fn rosenbrock(x0: &Variable, x1: &Variable) -> Variable {
+            let residual = x1 - pow(x0, 2.0);
+            100.0 * pow(&residual, 2.0) + pow(&(x0 - 1.0), 2.0)
+        }
+
+        let x0 = Variable::from_scalar(0.0);
+        let x1 = Variable::from_scalar(2.0);
+
+        rosenbrock(&x0, &x1).backward();
+        assert_eq!(grad_of(&x0), -2.0);
+        assert_eq!(grad_of(&x1), 400.0);
+
+        for _ in 0..1000 {
+            x0.cleargrad();
+            x1.cleargrad();
+            rosenbrock(&x0, &x1).backward();
+            descend(&x0, 0.001);
+            descend(&x1, 0.001);
+        }
+
+        assert!((scalar(&x0) - 0.683_711_856_913_831_7).abs() < 1e-6, "{x0}");
+        assert!((scalar(&x1) - 0.465_952_683_742_704_2).abs() < 1e-6, "{x1}");
+    }
+
+    /// step 33's objective, `y = x^4 - 2x^2`.
+    fn quartic(x: &Variable) -> Variable {
+        pow(x, 4.0) - 2.0 * pow(x, 2.0)
+    }
+
+    /// Runs `iterations` Newton steps from `start`, taking the second
+    /// derivative from `second`, and returns every iterate.
+    fn newton(
+        start: f64,
+        iterations: usize,
+        second: impl Fn(&Variable, &Variable) -> f64,
+    ) -> Vec<f64> {
+        let x = Variable::from_scalar(start);
+        let mut trace = vec![start];
+
+        for _ in 0..iterations {
+            x.cleargrad();
+            let y = quartic(&x);
+            y.backward_with(false, true);
+            let gx = x.grad().expect("first derivative");
+
+            let step = scalar(&gx) / second(&x, &gx);
+            x.set_data(x.data().expect("data") - step);
+            trace.push(scalar(&x));
+        }
+
+        trace
+    }
+
+    /// step 29: Newton's method with the second derivative written by hand,
+    /// `f''(x) = 12x^2 - 4`. Only the *first* derivative comes from the graph.
+    #[test]
+    fn step29_newton_with_a_hand_written_second_derivative() {
+        let trace = newton(2.0, 10, |x, _| 12.0 * scalar(x).powi(2) - 4.0);
+
+        assert_eq!(trace[0], 2.0);
+        assert!((trace[1] - 1.454_545_454_545_454_6).abs() < 1e-15);
+        assert_eq!(
+            trace.last().copied(),
+            Some(1.0),
+            "Newton's method lands exactly on the minimum"
+        );
+    }
+
+    /// step 33: the same run with the second derivative obtained by
+    /// back-propagating the first one. This is what `create_graph` is *for*,
+    /// and it must reproduce the hand-written result exactly.
+    #[test]
+    fn step33_newton_with_an_automatic_second_derivative() {
+        let automatic = newton(2.0, 10, |x, gx| {
+            x.cleargrad();
+            gx.backward();
+            scalar(&x.grad().expect("second derivative"))
+        });
+        let by_hand = newton(2.0, 10, |x, _| 12.0 * scalar(x).powi(2) - 4.0);
+
+        assert_eq!(
+            automatic, by_hand,
+            "the autodiff second derivative must equal 12x^2 - 4 to the last bit"
+        );
+    }
+
+    /// Each backward pass with `create_graph` must leave a *differentiable*
+    /// gradient behind; without it the chain stops after one order.
+    #[test]
+    fn create_graph_keeps_every_order_differentiable() {
+        let x = Variable::from_scalar(2.0);
+        let y = pow(&x, 6.0);
+        y.backward_with(false, true);
+
+        // d^n/dx^n x^6 at x = 2: 6x^5, 30x^4, 120x^3, 360x^2.
+        for expected in [192.0, 480.0, 960.0, 1440.0] {
+            let gx = x.grad().expect("derivative");
+            assert_eq!(scalar(&gx), expected);
+            assert!(
+                gx.creator().is_some(),
+                "the gradient is itself a graph node"
+            );
+            x.cleargrad();
+            gx.backward_with(false, true);
+        }
+    }
+
     #[test]
     fn backward_frees_the_forward_graph_when_the_output_is_dropped() {
         let x = Variable::from_scalar(2.0);

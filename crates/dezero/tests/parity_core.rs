@@ -5,7 +5,7 @@
 //! tests cover the ops *and* the backward traversal that produced them.
 //! Regenerate with `python tests/parity/gen_fixtures.py`.
 
-use dezero::{Variable, exp};
+use dezero::{Variable, cos, exp, pow, sin, tanh};
 use ndarray::{ArrayD, IxDyn};
 use serde::Deserialize;
 
@@ -36,6 +36,30 @@ struct UnaryFixture {
     input: Arr,
     output: Arr,
     grad: Arr,
+}
+
+/// Steps 34-35: `derivatives` is `[y, y', y'', ...]` for one input.
+#[derive(Debug, Deserialize)]
+struct HigherOrderFixture {
+    input: Arr,
+    derivatives: Vec<Arr>,
+}
+
+/// Step 33: the value, first and second derivative at one point.
+#[derive(Debug, Deserialize)]
+struct SecondDerivativeFixture {
+    input: Arr,
+    output: Arr,
+    grad: Arr,
+    grad2: Arr,
+}
+
+/// Step 33: every iterate of Newton's method, starting point included.
+#[derive(Debug, Deserialize)]
+struct NewtonFixture {
+    start: f64,
+    iterations: usize,
+    trace: Vec<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +156,55 @@ fn check_binary(name: &str, f: impl Fn(&Variable, &Variable) -> Variable) {
         &fx.grad1.to_array(),
         GRAD_RTOL,
     );
+}
+
+/// Replays the Python loop of steps 34-35: back-propagate with
+/// `create_graph`, record `x.grad`, clear it, then back-propagate *that*.
+///
+/// The fixture's `derivatives` are `[y, y', y'', ...]`, so the loop runs one
+/// backward pass more than it checks -- exactly like the generator, and the
+/// extra pass is free coverage of the next order.
+fn check_higher_order(name: &str, f: impl Fn(&Variable) -> Variable) {
+    let fx: HigherOrderFixture = load(name);
+    let (value, derivatives) = fx
+        .derivatives
+        .split_first()
+        .unwrap_or_else(|| panic!("fixture {name} should record at least y itself"));
+
+    let x = Variable::new(fx.input.to_array());
+    let y = f(&x);
+    y.backward_with(false, true);
+    assert_close(
+        &format!("{name} forward"),
+        &data_of(&y, name),
+        &value.to_array(),
+        RTOL,
+    );
+
+    for (order, expected) in derivatives.iter().enumerate() {
+        let what = format!("{name} derivative {}", order + 1);
+        let gx = x
+            .grad()
+            .unwrap_or_else(|| panic!("{what}: backward left no gradient on x"));
+        assert_close(&what, &data_of(&gx, &what), &expected.to_array(), GRAD_RTOL);
+
+        // `create_graph` again: the gradient we just checked has to remain
+        // differentiable, or the next iteration has nothing to work on.
+        x.cleargrad();
+        gx.backward_with(false, true);
+    }
+}
+
+/// The single scalar held by a 0-d variable.
+fn scalar_of(v: &Variable, what: &str) -> f64 {
+    let data = data_of(v, what);
+    assert_eq!(data.len(), 1, "{what}: expected a single element");
+    data.sum()
+}
+
+/// Step 33's objective, `y = x^4 - 2x^2`.
+fn quartic(x: &Variable) -> Variable {
+    pow(x, 4.0) - 2.0 * pow(x, 2.0)
 }
 
 // --- steps 02-08: single-variable functions and composition ---------------
@@ -288,4 +361,100 @@ fn goldstein_scalar_matches_python() {
 #[test]
 fn goldstein_2d_matches_python() {
     check_binary("goldstein_2d", goldstein);
+}
+
+// --- steps 27-35: trig/tanh and higher-order derivatives ------------------
+
+#[test]
+fn sin_matches_python() {
+    check_unary("sin", sin);
+}
+
+#[test]
+fn cos_matches_python() {
+    check_unary("cos", cos);
+}
+
+#[test]
+fn tanh_matches_python() {
+    check_unary("tanh", tanh);
+}
+
+/// step 34: `sin` differentiated three times over `linspace(-7, 7, 21)`.
+/// `sin -> cos -> -sin -> -cos` only comes out right if `Sin::backward`
+/// builds its `cos(x)` through `apply`.
+#[test]
+fn sin_higher_order_matches_python() {
+    check_higher_order("sin_higher_order", sin);
+}
+
+/// step 35: `tanh` to the second derivative at `x = 1`. Its backward reads
+/// the *output* variable, so the second pass walks back through the very op
+/// that produced it.
+#[test]
+fn tanh_higher_order_matches_python() {
+    check_higher_order("tanh_higher_order", tanh);
+}
+
+/// step 33: `y = x^4 - 2x^2` at `x = 2` -> `y = 8`, `y' = 24`, `y'' = 44`.
+#[test]
+fn quartic_second_derivative_matches_python() {
+    let fx: SecondDerivativeFixture = load("quartic_second_deriv");
+    let x = Variable::new(fx.input.to_array());
+    let y = quartic(&x);
+    y.backward_with(false, true);
+
+    assert_close(
+        "quartic forward",
+        &data_of(&y, "quartic"),
+        &fx.output.to_array(),
+        RTOL,
+    );
+
+    let gx = x.grad().expect("first derivative");
+    assert_close(
+        "quartic grad",
+        &data_of(&gx, "quartic grad"),
+        &fx.grad.to_array(),
+        GRAD_RTOL,
+    );
+
+    x.cleargrad();
+    gx.backward();
+    assert_close(
+        "quartic grad2",
+        &grad_of(&x, "quartic grad2"),
+        &fx.grad2.to_array(),
+        GRAD_RTOL,
+    );
+}
+
+/// step 33's headline: Newton's method driven entirely by automatic
+/// differentiation, `x -= y' / y''`, compared iterate by iterate.
+#[test]
+fn newton_quartic_trace_matches_python() {
+    let fx: NewtonFixture = load("newton_quartic");
+    let x = Variable::from_scalar(fx.start);
+    let mut trace = vec![fx.start];
+
+    for _ in 0..fx.iterations {
+        let y = quartic(&x);
+
+        x.cleargrad();
+        y.backward_with(false, true);
+        let gx = x.grad().expect("first derivative");
+
+        x.cleargrad();
+        gx.backward();
+        let gx2 = x.grad().expect("second derivative");
+
+        let step = scalar_of(&gx, "y'") / scalar_of(&gx2, "y''");
+        x.set_data(data_of(&x, "x") - step);
+        trace.push(scalar_of(&x, "x"));
+    }
+
+    let shape = IxDyn(&[trace.len()]);
+    let actual = ArrayD::from_shape_vec(shape.clone(), trace).expect("shape matches length");
+    let expected = ArrayD::from_shape_vec(shape, fx.trace).expect("shape matches length");
+    assert_close("newton trace", &actual, &expected, GRAD_RTOL);
 }
