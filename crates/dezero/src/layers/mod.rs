@@ -91,10 +91,12 @@
 //! assert!(net.params().iter().all(|p| p.grad().is_none()));
 //! ```
 
+pub mod conv;
 pub mod linear;
 pub mod rnn;
 pub mod save;
 
+pub use crate::layers::conv::Conv2dLayer;
 pub use crate::layers::linear::Linear;
 pub use crate::layers::rnn::{Lstm, Rnn};
 pub use crate::layers::save::{WeightsError, load_weights, save_weights};

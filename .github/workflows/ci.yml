@@ -37,6 +37,11 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --verbose
 
+      # The VGG16 forward pass is slow in a debug build, so it is #[ignore]d
+      # out of the default run. Release mode makes it cheap enough for CI.
+      - name: cargo test (ignored, release)
+        run: cargo test --workspace --release -- --ignored
+
   parity-fixtures-fresh:
     name: parity fixtures are up to date
     runs-on: ubuntu-latest

@@ -27,8 +27,10 @@
 //! Python does not require either.
 
 pub mod mlp;
+pub mod vgg;
 
 pub use crate::models::mlp::{Mlp, Sequential};
+pub use crate::models::vgg::Vgg16;
 
 use crate::layers::Layer;
 

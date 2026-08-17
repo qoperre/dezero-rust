@@ -104,7 +104,7 @@ The hard part: backward must itself build a graph (`create_graph`).
 ## Phase 10 — CNN (steps 57–58)
 
 - ☑ 57 — `im2col`, `conv2d`
-- ☐ 58 — pretrained VGG16 → **adapted**: architecture ported; pretrained
+- ☑ 58 — pretrained VGG16 → **adapted**: architecture ported; pretrained
   weight download is out of scope (documented divergence)
 
 ## Phase 11 — RNN (steps 59–60)
