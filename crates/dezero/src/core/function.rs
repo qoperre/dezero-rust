@@ -163,6 +163,25 @@ impl Function {
         self.0.output_shapes.len()
     }
 
+    /// The operation's type name — Python's `f.__class__.__name__`.
+    ///
+    /// Every [`Op`] is [`Debug`](std::fmt::Debug), and a derived `Debug` opens
+    /// with the type's own name, so the leading identifier is exactly the class
+    /// name Python would print. That avoids widening the `Op` trait with a
+    /// `name` method every implementor would have to write out by hand.
+    ///
+    /// Used to label nodes in the DOT graph of
+    /// [`utils::dot`](crate::utils::dot).
+    #[must_use]
+    pub fn op_name(&self) -> String {
+        let rendered = format!("{:?}", self.0.op);
+        rendered
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    }
+
     /// Returns handles to the output variables, or `None` for any output the
     /// user has already dropped.
     ///

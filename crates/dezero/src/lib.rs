@@ -189,5 +189,6 @@ pub use crate::models::{Mlp, Model, Sequential};
 pub use crate::optim::{
     ClipGrad, FreezeParam, Hook, Hooks, MomentumSgd, Optimizer, Sgd, WeightDecay,
 };
+pub use crate::utils::dot::get_dot_graph;
 pub use crate::utils::random::{Rng, rand, randn, seed};
 pub use crate::utils::{GradientCheckError, GradientMismatch, gradient_check, numerical_diff};

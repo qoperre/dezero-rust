@@ -50,8 +50,8 @@ automatic → recursion → loop.
 
 ## Phase 4 — Graph visualization (steps 25–26)
 
-- ☐ 25 — ▨ Graphviz introduction
-- ☐ 26 — DOT-graph emission (`plot_dot_graph` equivalent)
+- ☑ 25 — ▨ Graphviz introduction
+- ☑ 26 — DOT-graph emission (`plot_dot_graph` equivalent)
 
 ## Phase 5 — Higher-order derivatives (steps 27–35)
 

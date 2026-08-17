@@ -14,6 +14,7 @@
 
 pub mod array;
 pub mod conv;
+pub mod dot;
 pub mod random;
 pub mod shape;
 
