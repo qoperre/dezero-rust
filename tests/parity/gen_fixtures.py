@@ -133,6 +133,7 @@ def main():
     gen_tensor_ops()
     gen_broadcast_matrix()
     gen_nn()
+    gen_datasets()
 
 
 def gen_higher_order():
@@ -453,6 +454,106 @@ def gen_training_run():
             "final_W2": arr(model.l2.W.data), "final_b2": arr(model.l2.b.data),
         },
     )
+
+
+def gen_datasets():
+    """Steps 48-50: spiral classification, DataLoader batching, optimizer hooks."""
+    import dezero
+    from dezero import optimizers
+    from dezero.models import MLP
+    from dezero.datasets import Spiral
+    from dezero import DataLoader
+
+    # --- step 48: the spiral dataset, shipped explicitly -----------------
+    # get_spiral() uses np.random.randn + np.random.permutation, so the data
+    # itself must travel with the fixture; a seed would not reproduce it.
+    train = Spiral(train=True)
+    xs = np.array([train[i][0] for i in range(len(train))], dtype=np.float64)
+    ts = np.array([train[i][1] for i in range(len(train))], dtype=int)
+    write_fixture("spiral_data", {"x": arr(xs), "t": ts.tolist()})
+
+    # --- step 48: a full classification training run ---------------------
+    np.random.seed(7)
+    W1 = np.random.randn(2, 10) * 0.1
+    b1 = np.zeros(10)
+    W2 = np.random.randn(10, 3) * 0.1
+    b2 = np.zeros(3)
+
+    model = MLP((10, 3))
+    # Force the lazily-shaped weights into existence, then pin them.
+    model(Variable(xs[:1].copy()))
+    model.l0.W.data = W1.copy(); model.l0.b.data = b1.copy()
+    model.l1.W.data = W2.copy(); model.l1.b.data = b2.copy()
+
+    opt = optimizers.SGD(lr=1.0).setup(model)
+    losses = []
+    for _ in range(300):
+        pred = model(Variable(xs))
+        loss = F.softmax_cross_entropy(pred, ts)
+        model.cleargrads()
+        loss.backward()
+        opt.update()
+        losses.append(float(loss.data))
+
+    write_fixture(
+        "spiral_training",
+        {
+            "W1": arr(W1), "b1": arr(b1), "W2": arr(W2), "b2": arr(b2),
+            "lr": 1.0, "iterations": 300, "losses": losses,
+            "final_W1": arr(model.l0.W.data), "final_b1": arr(model.l0.b.data),
+            "final_W2": arr(model.l1.W.data), "final_b2": arr(model.l1.b.data),
+        },
+    )
+
+    # --- step 50: DataLoader batching, shuffle off so it is deterministic -
+    loader = DataLoader(train, batch_size=32, shuffle=False)
+    batches = []
+    for bx, bt in loader:
+        batches.append({"x": arr(bx), "t": np.asarray(bt).tolist()})
+    write_fixture(
+        "dataloader_batches",
+        {"batch_size": 32, "data_size": len(train), "batches": batches},
+    )
+
+    # --- step 50: optimizer hooks ----------------------------------------
+    gen_optimizer_hooks()
+
+
+def gen_optimizer_hooks():
+    """Step 50: WeightDecay and ClipGrad applied to a known gradient."""
+    from dezero import optimizers
+    from dezero.core import Parameter
+
+    def fresh():
+        p1 = Parameter(np.array([[1.0, -2.0], [3.0, -4.0]]))
+        p2 = Parameter(np.array([0.5, -1.5]))
+        p1.grad = Variable(np.array([[0.1, 0.2], [0.3, 0.4]]))
+        p2.grad = Variable(np.array([1.0, -2.0]))
+        return p1, p2
+
+    p1, p2 = fresh()
+    optimizers.WeightDecay(0.1)([p1, p2])
+    write_fixture(
+        "hook_weight_decay",
+        {
+            "rate": 0.1,
+            "p1": arr([[1.0, -2.0], [3.0, -4.0]]), "p2": arr([0.5, -1.5]),
+            "g1_in": arr([[0.1, 0.2], [0.3, 0.4]]), "g2_in": arr([1.0, -2.0]),
+            "g1_out": arr(p1.grad.data), "g2_out": arr(p2.grad.data),
+        },
+    )
+
+    for tag, max_norm in (("clips", 0.5), ("noop", 100.0)):
+        p1, p2 = fresh()
+        optimizers.ClipGrad(max_norm)([p1, p2])
+        write_fixture(
+            f"hook_clip_grad_{tag}",
+            {
+                "max_norm": max_norm,
+                "g1_in": arr([[0.1, 0.2], [0.3, 0.4]]), "g2_in": arr([1.0, -2.0]),
+                "g1_out": arr(p1.grad.data), "g2_out": arr(p2.grad.data),
+            },
+        )
 
 
 if __name__ == "__main__":
