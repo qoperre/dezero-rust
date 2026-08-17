@@ -192,6 +192,19 @@ impl Rng {
         ArrayD::from_shape_vec(IxDyn(shape), values)
             .expect("the buffer was built with exactly this many elements")
     }
+
+    /// An array of `shape` filled with uniform deviates in `[0, 1)` — numpy's
+    /// `np.random.rand(*shape)`.
+    ///
+    /// This is what a [`dropout`](crate::dropout) mask is drawn from. Values
+    /// are written in C (row-major) order.
+    #[must_use]
+    pub fn rand(&mut self, shape: &[usize]) -> ArrayD<f64> {
+        let count: usize = shape.iter().product();
+        let values: Vec<f64> = (0..count).map(|_| self.next_f64()).collect();
+        ArrayD::from_shape_vec(IxDyn(shape), values)
+            .expect("the buffer was built with exactly this many elements")
+    }
 }
 
 impl Default for Rng {
@@ -243,6 +256,32 @@ pub fn seed(seed: u64) {
 #[must_use]
 pub fn randn(shape: &[usize]) -> ArrayD<f64> {
     GLOBAL.with(|rng| rng.borrow_mut().randn(shape))
+}
+
+/// Draws an array of uniform deviates in `[0, 1)` from the global stream —
+/// numpy's `np.random.rand(*shape)`.
+///
+/// [`dropout`](crate::dropout) thresholds this to build its mask. As with
+/// [`randn`], the *distribution* matches numpy and the *stream* cannot: any
+/// test that needs a particular mask must supply it, which is what
+/// [`dropout_with_mask`](crate::dropout_with_mask) exists for.
+///
+/// # Examples
+///
+/// ```
+/// use dezero::{rand, seed};
+///
+/// seed(4);
+/// let u = rand(&[3, 4]);
+/// assert_eq!(u.shape(), &[3, 4]);
+/// assert!(u.iter().all(|v| (0.0..1.0).contains(v)));
+///
+/// seed(4);
+/// assert_eq!(rand(&[3, 4]), u);
+/// ```
+#[must_use]
+pub fn rand(shape: &[usize]) -> ArrayD<f64> {
+    GLOBAL.with(|rng| rng.borrow_mut().rand(shape))
 }
 
 #[cfg(test)]

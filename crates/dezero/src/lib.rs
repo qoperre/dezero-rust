@@ -172,6 +172,10 @@ pub use crate::functions::activation::{
     ReLU, Sigmoid, Softmax, relu, sigmoid, softmax, softmax_axis,
 };
 pub use crate::functions::basic_math::{Cos, Exp, Sin, Square, Tanh, cos, exp, sin, square, tanh};
+pub use crate::functions::conv::{
+    Col2im, Conv2d, Deconv2d, Im2col, Pooling, col2im, conv2d, deconv2d, deconv2d_with_outsize,
+    im2col, pooling,
+};
 pub use crate::functions::loss::{
     MeanSquaredError, SoftmaxCrossEntropy, mean_squared_error, softmax_cross_entropy,
 };
@@ -185,5 +189,5 @@ pub use crate::models::{Mlp, Model, Sequential};
 pub use crate::optim::{
     ClipGrad, FreezeParam, Hook, Hooks, MomentumSgd, Optimizer, Sgd, WeightDecay,
 };
-pub use crate::utils::random::{Rng, randn, seed};
+pub use crate::utils::random::{Rng, rand, randn, seed};
 pub use crate::utils::{GradientCheckError, GradientMismatch, gradient_check, numerical_diff};

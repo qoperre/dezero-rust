@@ -7,12 +7,17 @@
 //!   (`sum_to`, `reshape_sum_backward`), also from `dezero/utils.py`;
 //! * [`array`](mod@array) — keepdims reductions, `logsumexp`, and the gather/scatter pair
 //!   that stands in for numpy's fancy indexing (steps 41–48);
-//! * [`random`] — a self-contained generator for weight initialisation, since
-//!   no Rust stream can reproduce numpy's.
+//! * [`conv`](mod@conv) — `pair`, the convolution output-size arithmetic of step 56, and
+//!   the `im2col`/`col2im` adjoint pair of step 57;
+//! * [`random`] — a self-contained generator for weight initialisation and
+//!   dropout masks, since no Rust stream can reproduce numpy's.
 
 pub mod array;
+pub mod conv;
 pub mod random;
 pub mod shape;
+
+pub use crate::utils::conv::{Pair, get_conv_outsize, get_deconv_outsize, pair};
 
 use std::error::Error;
 use std::fmt;

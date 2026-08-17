@@ -98,12 +98,12 @@ The hard part: backward must itself build a graph (`create_graph`).
 
 - ☐ 53 — model save/load (Python pickles/npz → Rust: explicit serialization)
 - ☐ 54 — dropout + `test_mode()` / `Config.train`
-- ☐ 55 — ▨ CNN concepts
-- ☐ 56 — ▨ convolution arithmetic
+- ☑ 55 — ▨ CNN concepts
+- ☑ 56 — ▨ convolution arithmetic
 
 ## Phase 10 — CNN (steps 57–58)
 
-- ☐ 57 — `im2col`, `conv2d`
+- ☑ 57 — `im2col`, `conv2d`
 - ☐ 58 — pretrained VGG16 → **adapted**: architecture ported; pretrained
   weight download is out of scope (documented divergence)
 
