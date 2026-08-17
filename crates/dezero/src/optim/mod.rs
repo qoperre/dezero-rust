@@ -43,12 +43,25 @@
 //! identity for the same reason. Reusing a freed address cannot alias one
 //! parameter's state onto another's, because the optimizer holds a strong
 //! handle to every parameter it has state for.
+//!
+//! # Hooks (step 50)
+//!
+//! Python's `update` runs a list of callables over the parameter list before
+//! stepping any of it, and [`hooks`](mod@crate::optim::hooks) ports the three
+//! the book ships. Storage for them is a *required* trait method rather than a
+//! default, for the same reason [`Layer`]'s registration is split in two: a new
+//! optimizer that quietly dropped its hooks would train a network that ignores
+//! its own weight decay, with nothing anywhere to notice.
 
+pub mod hooks;
 pub mod momentum;
 pub mod sgd;
 
+pub use crate::optim::hooks::{ClipGrad, FreezeParam, Hook, Hooks, WeightDecay};
 pub use crate::optim::momentum::MomentumSgd;
 pub use crate::optim::sgd::Sgd;
+
+use std::rc::Rc;
 
 use ndarray::ArrayD;
 
@@ -57,9 +70,11 @@ use crate::layers::Layer;
 
 /// An update rule — Python's `Optimizer`.
 ///
-/// A new optimizer implements three methods: two one-liners that hand the
-/// trait its parameter list, and [`update_one`](Optimizer::update_one), which
-/// is the rule itself.
+/// A new optimizer implements five methods: four one-liners that hand the
+/// trait its parameter list and its [`Hook`] list, and
+/// [`update_one`](Optimizer::update_one), which is the rule itself. Everything
+/// else — [`setup`](Optimizer::setup), [`update`](Optimizer::update),
+/// [`add_hook`](Optimizer::add_hook) — is provided.
 ///
 /// # Examples
 ///
@@ -98,11 +113,66 @@ pub trait Optimizer {
     /// them.
     fn set_params(&mut self, params: Vec<Parameter>);
 
+    /// The hooks registered by [`add_hook`](Optimizer::add_hook), in order.
+    fn hooks(&self) -> &[Rc<dyn Hook>];
+
+    /// The hook list, for mutation.
+    ///
+    /// Required rather than defaulted so that an optimizer must decide where
+    /// its hooks live. The alternative — a default that silently accepts and
+    /// discards them — is the failure mode this trait's shape exists to
+    /// prevent.
+    fn hooks_mut(&mut self) -> &mut Hooks;
+
     /// Applies the update rule to one parameter — Python's `update_one`.
     ///
-    /// [`update`](Optimizer::update) has already checked that the parameter has
-    /// a gradient.
+    /// [`update`](Optimizer::update) has already checked that the parameter had
+    /// a gradient *before the hooks ran*. A hook may since have cleared it, so
+    /// an implementation still has to cope with a gradient that is not there —
+    /// which is what `data_and_grad` returning `None` is for.
     fn update_one(&mut self, param: &Parameter);
+
+    /// Registers a gradient rewrite — Python's `Optimizer.add_hook`.
+    ///
+    /// Hooks run in the order they were added, before every update.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dezero::{Optimizer, Parameter, Sgd, Variable, WeightDecay};
+    /// use ndarray::arr1;
+    ///
+    /// let w = Parameter::new(arr1(&[4.0]).into_dyn());
+    /// w.set_grad(Some(Variable::new(arr1(&[1.0]).into_dyn())));
+    ///
+    /// let mut optimizer = Sgd::new(0.1);
+    /// optimizer.set_params(vec![w.clone()]);
+    /// optimizer.add_hook(WeightDecay::new(0.25));
+    /// optimizer.update();
+    ///
+    /// // The gradient became 1 + 0.25 * 4 = 2 before the step.
+    /// assert_eq!(w.data(), Some(arr1(&[3.8]).into_dyn()));
+    /// ```
+    fn add_hook<H: Hook + 'static>(&mut self, hook: H)
+    where
+        Self: Sized,
+    {
+        self.hooks_mut().push(Rc::new(hook));
+    }
+
+    /// Registers a hook that is already shared — the object-safe half of
+    /// [`add_hook`](Optimizer::add_hook).
+    ///
+    /// Use it to give the same [`FreezeParam`] to a `dyn Optimizer`, or to two
+    /// optimizers at once.
+    fn add_shared_hook(&mut self, hook: Rc<dyn Hook>) {
+        self.hooks_mut().push(hook);
+    }
+
+    /// Discards every registered hook.
+    fn clear_hooks(&mut self) {
+        self.hooks_mut().clear();
+    }
 
     /// Registers a network's parameters — Python's `Optimizer.setup`.
     ///
@@ -114,8 +184,8 @@ pub trait Optimizer {
         self.set_params(target.params());
     }
 
-    /// Updates every registered parameter that has a gradient — Python's
-    /// `Optimizer.update`.
+    /// Runs every hook, then updates every registered parameter that has a
+    /// gradient — Python's `Optimizer.update`.
     ///
     /// Parameters without one are skipped rather than treated as having a zero
     /// gradient. That distinction matters twice over: a lazily-shaped weight
@@ -123,6 +193,19 @@ pub trait Optimizer {
     /// not be touched, and for a momentum method "no gradient" must not be
     /// allowed to decay the velocity of a parameter that simply was not part of
     /// this batch.
+    ///
+    /// The three-step order is Python's exactly — filter, hook, step — and each
+    /// step depends on the one before it:
+    ///
+    /// ```python
+    /// params = [p for p in self.target.params() if p.grad is not None]
+    /// for f in self.hooks: f(params)
+    /// for param in params: self.update_one(param)
+    /// ```
+    ///
+    /// In particular the list is snapshotted *before* the hooks run, so a
+    /// [`FreezeParam`] that clears a gradient does not remove its parameter
+    /// from this pass; `update_one` reaches it and finds nothing to do.
     fn update(&mut self) {
         // The filtered list is collected first so that the borrow of `self`
         // taken by `params()` is released before `update_one` needs `&mut self`.
@@ -132,6 +215,10 @@ pub trait Optimizer {
             .filter(|param| param.grad().is_some())
             .cloned()
             .collect();
+
+        for hook in self.hooks() {
+            hook.call(&pending);
+        }
 
         for param in &pending {
             self.update_one(param);
@@ -167,12 +254,14 @@ mod tests {
     use super::*;
     use crate::core::variable::Variable;
     use ndarray::{arr1, arr2};
+    use std::cell::RefCell;
 
     /// The smallest possible optimizer: records which parameters it was asked
     /// to update, and moves each one by a fixed amount.
-    #[derive(Default)]
+    #[derive(Debug, Default)]
     struct Recorder {
         params: Vec<Parameter>,
+        hooks: Hooks,
         touched: Vec<usize>,
     }
 
@@ -183,6 +272,14 @@ mod tests {
 
         fn set_params(&mut self, params: Vec<Parameter>) {
             self.params = params;
+        }
+
+        fn hooks(&self) -> &[Rc<dyn Hook>] {
+            &self.hooks
+        }
+
+        fn hooks_mut(&mut self) -> &mut Hooks {
+            &mut self.hooks
         }
 
         fn update_one(&mut self, param: &Parameter) {
@@ -244,6 +341,105 @@ mod tests {
         optimizer.setup(&second);
         assert_eq!(optimizer.params().len(), 1);
         assert_eq!(optimizer.params()[0].id(), second.weight().id());
+    }
+
+    // -- hooks -------------------------------------------------------------
+
+    /// Records the parameter list it was handed, and when.
+    #[derive(Debug, Default)]
+    struct Spy {
+        seen: RefCell<Vec<Vec<usize>>>,
+    }
+
+    impl Hook for Spy {
+        fn call(&self, params: &[Parameter]) {
+            // `id` reaches `Parameter` through `Deref`, so it needs a closure
+            // rather than a path.
+            self.seen
+                .borrow_mut()
+                .push(params.iter().map(|param| param.id()).collect());
+        }
+    }
+
+    #[test]
+    fn an_optimizer_starts_with_no_hooks() {
+        let optimizer = Recorder::default();
+        assert!(optimizer.hooks().is_empty());
+    }
+
+    #[test]
+    fn add_hook_registers_in_order_and_clear_hook_removes_them() {
+        let mut optimizer = Recorder::default();
+        optimizer.add_hook(WeightDecay::new(0.1));
+        optimizer.add_hook(ClipGrad::new(1.0));
+        assert_eq!(optimizer.hooks().len(), 2);
+        assert!(format!("{:?}", optimizer.hooks()[0]).contains("WeightDecay"));
+        assert!(format!("{:?}", optimizer.hooks()[1]).contains("ClipGrad"));
+
+        optimizer.clear_hooks();
+        assert!(optimizer.hooks().is_empty());
+    }
+
+    /// Python filters, then hooks, then steps. A hook must therefore see the
+    /// gradient-bearing parameters and only those, and see them before any of
+    /// them has moved.
+    #[test]
+    fn hooks_see_the_filtered_list_before_any_update() {
+        let with = with_grad(&[1.0], &[0.5]);
+        let without = Parameter::new(arr1(&[1.0]).into_dyn());
+
+        let spy = Rc::new(Spy::default());
+        let mut optimizer = Recorder::default();
+        optimizer.set_params(vec![with.clone(), without.clone()]);
+        optimizer.add_shared_hook(Rc::clone(&spy) as Rc<dyn Hook>);
+        optimizer.update();
+
+        assert_eq!(
+            *spy.seen.borrow(),
+            vec![vec![with.id()]],
+            "called once, with the parameters that have a gradient"
+        );
+        assert!(
+            optimizer.touched.iter().all(|id| *id == with.id()),
+            "and the step happened after"
+        );
+    }
+
+    #[test]
+    fn a_hook_runs_once_per_update_not_once_per_parameter() {
+        let a = with_grad(&[1.0], &[1.0]);
+        let b = with_grad(&[2.0], &[1.0]);
+
+        let spy = Rc::new(Spy::default());
+        let mut optimizer = Recorder::default();
+        optimizer.set_params(vec![a, b]);
+        optimizer.add_shared_hook(Rc::clone(&spy) as Rc<dyn Hook>);
+
+        optimizer.update();
+        optimizer.update();
+
+        let seen = spy.seen.borrow();
+        assert_eq!(seen.len(), 2, "two updates, two calls");
+        assert_eq!(seen[0].len(), 2, "both parameters, in one call");
+    }
+
+    /// The snapshot is taken before the hooks, so a hook that clears a gradient
+    /// does not shorten the list being iterated — `update_one` still gets the
+    /// parameter and has to cope with the gradient being gone.
+    #[test]
+    fn a_hook_that_clears_a_gradient_does_not_shrink_the_pass() {
+        let w = with_grad(&[1.0], &[1.0]);
+        let mut optimizer = Recorder::default();
+        optimizer.set_params(vec![w.clone()]);
+        optimizer.add_hook(FreezeParam::new(vec![w.clone()]));
+        optimizer.update();
+
+        assert_eq!(
+            optimizer.touched,
+            vec![w.id()],
+            "update_one was still called for it"
+        );
+        assert!(w.grad().is_none());
     }
 
     #[test]

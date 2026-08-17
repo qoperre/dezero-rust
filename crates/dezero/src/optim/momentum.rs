@@ -15,11 +15,12 @@
 //! [`Sgd`](crate::Sgd) shows on the book's own Rosenbrock example.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use ndarray::ArrayD;
 
 use crate::core::parameter::Parameter;
-use crate::optim::{Optimizer, data_and_grad};
+use crate::optim::{Hook, Hooks, Optimizer, data_and_grad};
 
 /// Gradient descent with momentum — Python's `MomentumSGD`.
 ///
@@ -50,6 +51,7 @@ use crate::optim::{Optimizer, data_and_grad};
 #[derive(Debug, Clone)]
 pub struct MomentumSgd {
     params: Vec<Parameter>,
+    hooks: Hooks,
     learning_rate: f64,
     momentum: f64,
     /// One velocity per parameter, keyed by [`Variable::id`](crate::Variable::id)
@@ -67,6 +69,7 @@ impl MomentumSgd {
     pub fn new(learning_rate: f64, momentum: f64) -> Self {
         Self {
             params: Vec::new(),
+            hooks: Hooks::new(),
             learning_rate,
             momentum,
             velocities: HashMap::new(),
@@ -104,6 +107,14 @@ impl Optimizer for MomentumSgd {
 
     fn set_params(&mut self, params: Vec<Parameter>) {
         self.params = params;
+    }
+
+    fn hooks(&self) -> &[Rc<dyn Hook>] {
+        &self.hooks
+    }
+
+    fn hooks_mut(&mut self) -> &mut Hooks {
+        &mut self.hooks
     }
 
     /// `v = momentum * v - lr * grad; param.data += v`.

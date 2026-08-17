@@ -28,7 +28,19 @@
 //!   [`softmax_cross_entropy`];
 //! * [`Parameter`], [`Layer`] and [`Model`] — weights, the objects that own
 //!   them, and networks built by composing those;
-//! * [`Optimizer`] with [`Sgd`] and [`MomentumSgd`].
+//! * [`Optimizer`] with [`Sgd`] and [`MomentumSgd`], and the [`Hook`]s
+//!   [`WeightDecay`], [`ClipGrad`] and [`FreezeParam`].
+//!
+//! And the data plumbing of steps 48–51:
+//!
+//! * [`Dataset`] and [`DataLoader`] — examples, and the mini-[`Batch`]es a
+//!   training loop eats;
+//! * [`Spiral`], the toy classification set, and [`Mnist`] with its
+//!   [IDX](read_idx)/gzip reader.
+//!
+//! There is no GPU module: step 52 swaps `numpy` for `cupy` behind a
+//! `get_array_module` shim, and this port has no CUDA backend to put behind
+//! such a shim. It is documented in `docs/DIVERGENCES.md` rather than faked.
 //!
 //! # Example
 //!
@@ -141,6 +153,7 @@
 #![deny(missing_docs)]
 
 pub mod core;
+pub mod data;
 pub mod functions;
 pub mod layers;
 pub mod models;
@@ -152,6 +165,9 @@ pub use crate::core::function::{Function, FunctionInner, Op, apply, apply1};
 pub use crate::core::ops::{Add, Div, Mul, Neg, Pow, Sub, add, div, mul, neg, pow, sub};
 pub use crate::core::parameter::Parameter;
 pub use crate::core::variable::{Variable, VariableInner};
+pub use crate::data::idx::{IdxArray, IdxError, decode_idx, read_idx};
+pub use crate::data::mnist::{Mnist, MnistError, cache_dir as mnist_cache_dir};
+pub use crate::data::{Batch, DataLoader, Dataset, MapInput, MapLabel, Spiral};
 pub use crate::functions::activation::{
     ReLU, Sigmoid, Softmax, relu, sigmoid, softmax, softmax_axis,
 };
@@ -166,6 +182,8 @@ pub use crate::functions::reduce::{
 pub use crate::functions::shape::{Reshape, Transpose, reshape, transpose};
 pub use crate::layers::{Layer, Linear};
 pub use crate::models::{Mlp, Model, Sequential};
-pub use crate::optim::{MomentumSgd, Optimizer, Sgd};
+pub use crate::optim::{
+    ClipGrad, FreezeParam, Hook, Hooks, MomentumSgd, Optimizer, Sgd, WeightDecay,
+};
 pub use crate::utils::random::{Rng, randn, seed};
 pub use crate::utils::{GradientCheckError, GradientMismatch, gradient_check, numerical_diff};

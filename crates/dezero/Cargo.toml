@@ -4,6 +4,11 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+# DeZero's MNIST archives are gzip. A hand-written DEFLATE decoder is a large,
+# error-prone unit of work with no pedagogical value here; `flate2` (pure-Rust
+# `miniz_oxide` backend by default) is the de-facto standard and is what cargo
+# itself uses. See `docs/DIVERGENCES.md`.
+flate2 = "1"
 ndarray = "0.16"
 
 [dev-dependencies]

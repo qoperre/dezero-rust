@@ -122,6 +122,65 @@ impl Rng {
         (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
     }
 
+    /// A uniformly distributed integer in `0..n` — numpy's
+    /// `np.random.randint(n)`.
+    ///
+    /// Unbiased: the raw 64-bit draw is rejected when it falls in the short
+    /// final block that `% n` would over-represent. The plain `next_u64() % n`
+    /// everyone writes first is skewed towards the low residues by a factor of
+    /// `n / 2^64`, which is invisible for `n = 3` and catastrophic for a `n`
+    /// near `2^63`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` is 0: there is no integer below zero to return.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "the residue is smaller than n, which came from a usize"
+    )]
+    pub fn below(&mut self, n: usize) -> usize {
+        assert!(n > 0, "dezero: Rng::below needs a bound of at least 1");
+        let bound = n as u64;
+        // `bound.wrapping_neg() % bound` is `2^64 % bound` — the size of the
+        // incomplete final block of the 64-bit range.
+        let reject_below = bound.wrapping_neg() % bound;
+        loop {
+            let draw = self.next_u64();
+            if draw >= reject_below {
+                return (draw % bound) as usize;
+            }
+        }
+    }
+
+    /// A uniformly random permutation of `0..n` — numpy's
+    /// `np.random.permutation(n)`.
+    ///
+    /// Fisher–Yates, drawing from this stream. It is the *same distribution* as
+    /// numpy's and emphatically **not** the same sequence: numpy shuffles from
+    /// the Mersenne Twister, which no generator here reproduces
+    /// (`docs/ARCHITECTURE.md`). Anything that has to agree with Python on a
+    /// specific ordering must ship the ordering, not a seed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dezero::Rng;
+    ///
+    /// let mut rng = Rng::new(3);
+    /// let mut p = rng.permutation(6);
+    /// assert_eq!(p.len(), 6);
+    /// p.sort_unstable();
+    /// assert_eq!(p, vec![0, 1, 2, 3, 4, 5], "every index appears exactly once");
+    /// ```
+    #[must_use]
+    pub fn permutation(&mut self, n: usize) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..n).collect();
+        for i in (1..n).rev() {
+            order.swap(i, self.below(i + 1));
+        }
+        order
+    }
+
     /// An array of `shape` filled with standard normal deviates — numpy's
     /// `np.random.randn(*shape)`.
     ///
@@ -342,5 +401,62 @@ mod tests {
         seed(2024);
         let global = randn(&[5]);
         assert_eq!(Rng::new(2024).randn(&[5]), global);
+    }
+
+    // -- below / permutation ----------------------------------------------
+
+    #[test]
+    fn below_stays_inside_its_bound() {
+        let mut rng = Rng::new(17);
+        assert!((0..1000).all(|_| rng.below(7) < 7));
+        assert!(
+            (0..10).all(|_| rng.below(1) == 0),
+            "a bound of 1 is constant"
+        );
+    }
+
+    #[test]
+    fn below_covers_its_range_roughly_evenly() {
+        let mut rng = Rng::new(31);
+        let mut counts = [0_u32; 6];
+        for _ in 0..SAMPLES {
+            counts[rng.below(6)] += 1;
+        }
+        let expected = sample_count() / 6.0;
+        for (face, count) in counts.iter().enumerate() {
+            let share = f64::from(*count) / expected;
+            assert!(
+                (share - 1.0).abs() < 0.1,
+                "face {face} came up {count} times, expected about {expected}"
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "bound of at least 1")]
+    fn below_rejects_a_zero_bound() {
+        let _ = Rng::new(0).below(0);
+    }
+
+    #[test]
+    fn a_permutation_is_a_bijection() {
+        let mut rng = Rng::new(11);
+        for n in [0, 1, 2, 5, 64] {
+            let mut order = rng.permutation(n);
+            assert_eq!(order.len(), n);
+            order.sort_unstable();
+            assert_eq!(order, (0..n).collect::<Vec<_>>(), "n = {n}");
+        }
+    }
+
+    #[test]
+    fn permutations_are_reproducible_and_not_the_identity() {
+        assert_eq!(Rng::new(4).permutation(50), Rng::new(4).permutation(50));
+        assert_ne!(
+            Rng::new(4).permutation(50),
+            (0..50).collect::<Vec<_>>(),
+            "50! makes an accidental identity impossible in practice"
+        );
+        assert_ne!(Rng::new(4).permutation(50), Rng::new(5).permutation(50));
     }
 }

@@ -7,8 +7,10 @@
 //! param.data -= self.lr * param.grad.data
 //! ```
 
+use std::rc::Rc;
+
 use crate::core::parameter::Parameter;
-use crate::optim::{Optimizer, data_and_grad};
+use crate::optim::{Hook, Hooks, Optimizer, data_and_grad};
 
 /// Stochastic gradient descent — Python's `SGD`.
 ///
@@ -34,6 +36,7 @@ use crate::optim::{Optimizer, data_and_grad};
 #[derive(Debug, Clone)]
 pub struct Sgd {
     params: Vec<Parameter>,
+    hooks: Hooks,
     learning_rate: f64,
 }
 
@@ -47,6 +50,7 @@ impl Sgd {
     pub fn new(learning_rate: f64) -> Self {
         Self {
             params: Vec::new(),
+            hooks: Hooks::new(),
             learning_rate,
         }
     }
@@ -70,6 +74,14 @@ impl Optimizer for Sgd {
 
     fn set_params(&mut self, params: Vec<Parameter>) {
         self.params = params;
+    }
+
+    fn hooks(&self) -> &[Rc<dyn Hook>] {
+        &self.hooks
+    }
+
+    fn hooks_mut(&mut self) -> &mut Hooks {
+        &mut self.hooks
     }
 
     /// `param.data -= lr * param.grad.data`.
