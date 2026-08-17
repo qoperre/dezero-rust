@@ -184,7 +184,7 @@ pub use crate::functions::reduce::{
     Axes, BroadcastTo, Sum, SumTo, broadcast_to, sum, sum_all, sum_to,
 };
 pub use crate::functions::shape::{Reshape, Transpose, reshape, transpose};
-pub use crate::layers::{Layer, Linear, Lstm, Rnn};
+pub use crate::layers::{Layer, Linear, Lstm, Rnn, WeightsError, load_weights, save_weights};
 pub use crate::models::{Mlp, Model, Sequential};
 pub use crate::optim::{
     ClipGrad, FreezeParam, Hook, Hooks, MomentumSgd, Optimizer, Sgd, WeightDecay,

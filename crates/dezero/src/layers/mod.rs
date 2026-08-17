@@ -93,9 +93,11 @@
 
 pub mod linear;
 pub mod rnn;
+pub mod save;
 
 pub use crate::layers::linear::Linear;
 pub use crate::layers::rnn::{Lstm, Rnn};
+pub use crate::layers::save::{WeightsError, load_weights, save_weights};
 
 use crate::core::parameter::Parameter;
 use crate::core::variable::Variable;
@@ -159,6 +161,36 @@ pub trait Layer {
         for param in self.params() {
             param.cleargrad();
         }
+    }
+
+    /// Every parameter paired with a path that identifies it — Python's
+    /// `Layer._flatten_params`.
+    ///
+    /// Keys look like `W`, `b`, `0/W`, `1/2/b`: a sub-layer contributes its
+    /// **index** as a path segment, and the leaf segment is the parameter's own
+    /// name.
+    ///
+    /// Python uses the *field* name for the sub-layer segment (`l1/W`), which
+    /// it gets from `__setattr__` interception that Rust has no equivalent of.
+    /// The index is stable for a given layer structure, which is all
+    /// save/load needs. It does mean a file written here does not carry
+    /// Python's key names — but the formats differ anyway (divergence 31), so
+    /// the two were never going to exchange files.
+    ///
+    /// An unnamed parameter falls back to its position, so keys stay unique
+    /// even for a layer that never named its weights.
+    fn named_params(&self) -> Vec<(String, Parameter)> {
+        let mut out = Vec::new();
+        for (index, param) in self.own_params().into_iter().enumerate() {
+            let leaf = param.name().unwrap_or_else(|| index.to_string());
+            out.push((leaf, param));
+        }
+        for (index, sublayer) in self.sublayers().into_iter().enumerate() {
+            for (key, param) in sublayer.named_params() {
+                out.push((format!("{index}/{key}"), param));
+            }
+        }
+        out
     }
 }
 

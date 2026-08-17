@@ -96,7 +96,7 @@ The hard part: backward must itself build a graph (`create_graph`).
 
 ## Phase 9 — Model persistence & regularization (steps 53–56)
 
-- ☐ 53 — model save/load (Python pickles/npz → Rust: explicit serialization)
+- ☑ 53 — model save/load (Python pickles/npz → Rust: explicit serialization)
 - ☑ 54 — dropout + `test_mode()` / `Config.train`
 - ☑ 55 — ▨ CNN concepts
 - ☑ 56 — ▨ convolution arithmetic

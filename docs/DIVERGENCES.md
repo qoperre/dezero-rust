@@ -40,6 +40,7 @@ to that is a divergence and belongs in this file.
 | 28 | `Optimizer` hook storage (step 50) | `self.hooks` inherited from the base class | each impl declares `hooks()`/`hooks_mut()` | Rust traits have no inherited state. Same reasoning as row 19 and the `Layer` split. |
 | 29 | `SeqDataLoader` / `SinCurve` (step 60) | sequential batching over a regression dataset | **not ported** | `SinCurve` is a regression set, and `Dataset::label` is an `Option<usize>` class index (row 22). Widening it is row 22's flagged follow-up; bolting a second label type on here would make the trait worse to avoid one dataset. |
 | 30 | `plot_dot_graph` (step 26) | writes a temp file, shells out to the Graphviz `dot` binary, returns a Jupyter `Image` | `get_dot_graph` returns the DOT **text**; the caller renders it | The binary may not be installed, the image is not something a test can assert on, and spawning a process belongs in a caller rather than a library. |
+| 31 | Weights file format (step 53) | `np.savez_compressed` — a zip of `.npy` members | JSON: key → `{shape, data}`, with the numbers as **strings** | An inspectable file is worth a lot mid-port. The numbers are strings because `serde_json`'s parser is not correctly rounded — measured, not assumed: it returns a value 1 ULP off for ordinary weights. Rust's own `Display`/`parse` pair is exact. The two formats do not interoperate. `serde`/`serde_json` are now runtime deps. |
 
 <!-- Rows are appended as each step surfaces a real divergence. Keep the
      table ordered by the step that introduced the entry. -->
