@@ -134,6 +134,7 @@ def main():
     gen_broadcast_matrix()
     gen_nn()
     gen_datasets()
+    gen_cnn_rnn()
 
 
 def gen_higher_order():
@@ -554,6 +555,135 @@ def gen_optimizer_hooks():
                 "g1_out": arr(p1.grad.data), "g2_out": arr(p2.grad.data),
             },
         )
+
+
+def gen_cnn_rnn():
+    """Steps 54-60: dropout, im2col/conv2d/pooling, RNN and LSTM."""
+    import dezero
+    import dezero.layers as L
+    from dezero import test_mode
+    from dezero.functions_conv import im2col, conv2d, pooling
+
+    np.random.seed(11)
+
+    # --- step 54: dropout -------------------------------------------------
+    # The mask is random, so it travels with the fixture; the Rust side must
+    # be able to inject it. test_mode is exact parity with no mask at all.
+    x = np.random.randn(4, 5)
+    ratio = 0.4
+    mask = (np.random.rand(*x.shape) > ratio).astype(np.float64)
+    scale = 1.0 - ratio
+    y_train = x * mask / scale
+    with test_mode():
+        v = Variable(x.copy())
+        y_test = F.dropout(v, ratio)
+    write_fixture(
+        "dropout",
+        {
+            "input": arr(x), "ratio": ratio, "mask": arr(mask),
+            "train_output": arr(y_train),
+            "test_output": arr(y_test.data),
+        },
+    )
+
+    # --- step 57: im2col --------------------------------------------------
+    img = np.random.randn(1, 3, 7, 7)
+    for tag, ksize, stride, pad in (("k3s1p0", 3, 1, 0), ("k3s2p1", 3, 2, 1)):
+        col = im2col(Variable(img.copy()), ksize, stride, pad, to_matrix=True)
+        write_fixture(
+            f"im2col_{tag}",
+            {
+                "input": arr(img), "kernel": ksize, "stride": stride, "pad": pad,
+                "output": arr(col.data),
+            },
+        )
+
+    # --- step 57: conv2d --------------------------------------------------
+    xc = np.random.randn(2, 3, 5, 5)
+    Wc = np.random.randn(4, 3, 3, 3)
+    bc = np.random.randn(4)
+    for tag, stride, pad in (("s1p0", 1, 0), ("s1p1", 1, 1), ("s2p1", 2, 1)):
+        vx, vW, vb = Variable(xc.copy()), Variable(Wc.copy()), Variable(bc.copy())
+        y = conv2d(vx, vW, vb, stride=stride, pad=pad)
+        F.sum(y).backward()
+        write_fixture(
+            f"conv2d_{tag}",
+            {
+                "x": arr(xc), "W": arr(Wc), "b": arr(bc),
+                "stride": stride, "pad": pad,
+                "output": arr(y.data),
+                "gx": arr(vx.grad.data), "gW": arr(vW.grad.data), "gb": arr(vb.grad.data),
+            },
+        )
+
+    # --- step 57: max pooling --------------------------------------------
+    xp_ = np.random.randn(2, 3, 6, 6)
+    for tag, ksize, stride, pad in (("k2s2p0", 2, 2, 0), ("k3s1p1", 3, 1, 1)):
+        v = Variable(xp_.copy())
+        y = pooling(v, ksize, stride, pad)
+        F.sum(y).backward()
+        write_fixture(
+            f"pooling_{tag}",
+            {
+                "input": arr(xp_), "kernel": ksize, "stride": stride, "pad": pad,
+                "output": arr(y.data), "grad": arr(v.grad.data),
+            },
+        )
+
+    gen_rnn()
+
+
+def gen_rnn():
+    """Steps 59-60: RNN and LSTM cells, weights pinned."""
+    import dezero.layers as L
+
+    np.random.seed(13)
+    hidden, in_size, batch = 4, 3, 2
+
+    # --- step 59: RNN, unrolled over 3 timesteps --------------------------
+    x2h_W = np.random.randn(in_size, hidden) * 0.1
+    x2h_b = np.zeros(hidden)
+    h2h_W = np.random.randn(hidden, hidden) * 0.1
+    xs = [np.random.randn(batch, in_size) for _ in range(3)]
+
+    rnn = L.RNN(hidden, in_size=in_size)
+    rnn.x2h.W.data = x2h_W.copy()
+    rnn.x2h.b.data = x2h_b.copy()
+    rnn.h2h.W.data = h2h_W.copy()
+
+    states = []
+    for xt in xs:
+        states.append(arr(rnn(Variable(xt.copy())).data))
+    write_fixture(
+        "rnn_unrolled",
+        {
+            "x2h_W": arr(x2h_W), "x2h_b": arr(x2h_b), "h2h_W": arr(h2h_W),
+            "inputs": [arr(v) for v in xs],
+            "states": states,
+        },
+    )
+
+    # --- step 60: LSTM, unrolled over 3 timesteps -------------------------
+    np.random.seed(17)
+    lstm = L.LSTM(hidden, in_size=in_size)
+    weights = {}
+    for name in ("x2f", "x2i", "x2o", "x2u"):
+        layer = getattr(lstm, name)
+        layer.W.data = (np.random.randn(in_size, hidden) * 0.1)
+        layer.b.data = np.zeros(hidden)
+        weights[f"{name}_W"] = arr(layer.W.data)
+        weights[f"{name}_b"] = arr(layer.b.data)
+    for name in ("h2f", "h2i", "h2o", "h2u"):
+        layer = getattr(lstm, name)
+        layer.W.data = (np.random.randn(hidden, hidden) * 0.1)
+        weights[f"{name}_W"] = arr(layer.W.data)
+
+    xs = [np.random.randn(batch, in_size) for _ in range(3)]
+    states = [arr(lstm(Variable(xt.copy())).data) for xt in xs]
+    payload = dict(weights)
+    payload["inputs"] = [arr(v) for v in xs]
+    payload["states"] = states
+    write_fixture("lstm_unrolled", payload)
 
 
 if __name__ == "__main__":
