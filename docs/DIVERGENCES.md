@@ -30,6 +30,7 @@ to that is a divergence and belongs in this file.
 | 18 | `matmul`/`linear` rank (step 41) | `np.dot` generalises beyond 2-D | 2-D only; panics otherwise | `MatMul::backward`'s transpose does not generalise. A loud panic beats a right-shaped wrong gradient. |
 | 19 | `params()` ordering (step 44) | Python's `_params` is a `set` — hash-dependent order | deterministic: own params first, then each sublayer | No consequence for SGD/Momentum. Matters for `ClipGrad`, whose total-norm sum is order-sensitive at the last bit. |
 | 20 | Acronym naming | `SGD`, `MomentumSGD`, `MLP` | `Sgd`, `MomentumSgd`, `Mlp` | clippy's `upper_case_acronyms` is warn-by-default and this project builds with `-D warnings`. |
+| 21 | gzip (step 51) | Python's `gzip` module | the `flate2` crate | DeZero's MNIST archives are gzip. A hand-written DEFLATE decoder is a large, error-prone unit of work with no pedagogical value here; `flate2` (pure-Rust `miniz_oxide` backend) is the de-facto standard and is what cargo itself uses. The only dependency added beyond `ndarray`. |
 
 <!-- Rows are appended as each step surfaces a real divergence. Keep the
      table ordered by the step that introduced the entry. -->
