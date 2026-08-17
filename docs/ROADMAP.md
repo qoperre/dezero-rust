@@ -84,14 +84,14 @@ The hard part: backward must itself build a graph (`create_graph`).
 - ☑ 45 — nested `Layer` → `Model`
 - ☑ 46 — `Optimizer` (SGD, Momentum)
 - ☑ 47 — softmax / cross-entropy
-- ☐ 48 — multi-class classification (spiral dataset) — deferred to land with `Dataset` in 49–50
+- ☑ 48 — multi-class classification (spiral dataset) — deferred to land with `Dataset` in 49–50
 
 ## Phase 8 — Datasets & training loop (steps 49–52)
 
-- ☐ 49 — `Dataset` abstraction
-- ☐ 50 — `DataLoader` (mini-batching, epochs)
-- ☐ 51 — MNIST
-- ☐ 52 — GPU/CuPy → **adapted**: no CUDA backend; documented as a
+- ☑ 49 — `Dataset` abstraction
+- ☑ 50 — `DataLoader` (mini-batching, epochs)
+- ☑ 51 — MNIST
+- ☑ 52 — GPU/CuPy → **adapted**: no CUDA backend; documented as a
   deliberate divergence (see `docs/DIVERGENCES.md`)
 
 ## Phase 9 — Model persistence & regularization (steps 53–56)
