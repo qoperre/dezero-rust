@@ -5,7 +5,10 @@
 //! tests cover the ops *and* the backward traversal that produced them.
 //! Regenerate with `python tests/parity/gen_fixtures.py`.
 
-use dezero::{Variable, cos, exp, pow, sin, tanh};
+use dezero::{
+    Axes, Variable, broadcast_to, cos, exp, pow, reshape, sin, sum, sum_all, sum_to, tanh,
+    transpose,
+};
 use ndarray::{ArrayD, IxDyn};
 use serde::Deserialize;
 
@@ -69,6 +72,25 @@ struct BinaryFixture {
     output: Arr,
     grad0: Arr,
     grad1: Arr,
+}
+
+/// Steps 37-40: a function of one variable and one target shape.
+#[derive(Debug, Deserialize)]
+struct ShapeFixture {
+    input: Arr,
+    shape: Vec<usize>,
+    output: Arr,
+    grad: Arr,
+}
+
+/// Steps 38-39: `sum` over `axis` (`null` for Python's `None`).
+#[derive(Debug, Deserialize)]
+struct SumFixture {
+    input: Arr,
+    axis: Option<isize>,
+    keepdims: bool,
+    output: Arr,
+    grad: Arr,
 }
 
 fn load<T: for<'de> Deserialize<'de>>(name: &str) -> T {
@@ -193,6 +215,71 @@ fn check_higher_order(name: &str, f: impl Fn(&Variable) -> Variable) {
         x.cleargrad();
         gx.backward_with(false, true);
     }
+}
+
+/// How the Python generator seeded the gradients for a fixture.
+#[derive(Debug, Clone, Copy)]
+enum Seed {
+    /// `y.backward()` -- ones over the output itself.
+    Output,
+    /// `F.sum(y).backward()` -- mathematically the same seed, but it also works
+    /// when `y` *is* `x`, which is what `broadcast_to`/`sum_to` return when the
+    /// shape already matches (no graph node, so `y.backward()` would have
+    /// nothing to walk).
+    ViaSum,
+}
+
+impl Seed {
+    fn start(self, y: &Variable) {
+        match self {
+            Self::Output => y.backward(),
+            Self::ViaSum => sum_all(y).backward(),
+        }
+    }
+}
+
+/// Build `x` from the fixture, apply `f` with the fixture's target shape,
+/// back-propagate the way the generator did, compare both sides.
+fn check_shaped(name: &str, seed: Seed, f: impl Fn(&Variable, &[usize]) -> Variable) {
+    let fx: ShapeFixture = load(name);
+    let x = Variable::new(fx.input.to_array());
+    let y = f(&x, &fx.shape);
+    seed.start(&y);
+
+    assert_close(
+        &format!("{name} forward"),
+        &data_of(&y, name),
+        &fx.output.to_array(),
+        RTOL,
+    );
+    assert_close(
+        &format!("{name} grad"),
+        &grad_of(&x, name),
+        &fx.grad.to_array(),
+        GRAD_RTOL,
+    );
+}
+
+/// Same, for `sum`'s `(axis, keepdims)` matrix.
+fn check_sum(name: &str) {
+    let fx: SumFixture = load(name);
+    let x = Variable::new(fx.input.to_array());
+    let axis = fx.axis.map_or(Axes::All, Axes::from);
+    let y = sum(&x, axis, fx.keepdims);
+    y.backward();
+
+    assert_close(
+        &format!("{name} forward"),
+        &data_of(&y, name),
+        &fx.output.to_array(),
+        RTOL,
+    );
+    assert_close(
+        &format!("{name} grad"),
+        &grad_of(&x, name),
+        &fx.grad.to_array(),
+        GRAD_RTOL,
+    );
 }
 
 /// The single scalar held by a 0-d variable.
@@ -457,4 +544,118 @@ fn newton_quartic_trace_matches_python() {
     let actual = ArrayD::from_shape_vec(shape.clone(), trace).expect("shape matches length");
     let expected = ArrayD::from_shape_vec(shape, fx.trace).expect("shape matches length");
     assert_close("newton trace", &actual, &expected, GRAD_RTOL);
+}
+
+// --- step 37: reshape / transpose -----------------------------------------
+
+/// Every rank change that matters: flattening, adding an axis, folding two
+/// axes together, and the degenerate `(1, 1) -> (1,)`.
+#[test]
+fn reshape_matches_python() {
+    for name in [
+        "reshape_2d_to_1d",
+        "reshape_2d_to_3d",
+        "reshape_3d_to_2d",
+        "reshape_to_scalarish",
+    ] {
+        check_shaped(name, Seed::Output, reshape);
+    }
+}
+
+#[test]
+fn transpose_matches_python() {
+    check_unary("transpose_2d", transpose);
+}
+
+// --- steps 38-39: sum over every axis/keepdims combination ----------------
+
+#[test]
+fn sum_matches_python() {
+    for name in [
+        "sum_all",
+        "sum_all_keepdims",
+        "sum_axis0",
+        "sum_axis1",
+        "sum_axis0_keepdims",
+        "sum_axis1_keepdims",
+        "sum_3d_axis0",
+        "sum_3d_axis1",
+        "sum_3d_axis2",
+        "sum_3d_axis1_keepdims",
+    ] {
+        check_sum(name);
+    }
+}
+
+// --- step 40: broadcast_to / sum_to ---------------------------------------
+//
+// The gradients in these fixtures were seeded from `F.sum(y)`, not `y`: when
+// the requested shape already matches, Python returns `x` itself with no graph
+// node, and `y.backward()` would have nothing to start from. Summing first is
+// the same seed mathematically and covers the identity case too.
+
+#[test]
+fn broadcast_to_matches_python() {
+    for name in [
+        "broadcast_to_scalar_to_2d",
+        "broadcast_to_row_to_2d",
+        "broadcast_to_col_to_2d",
+        "broadcast_to_1_to_3d",
+        "broadcast_to_noop",
+    ] {
+        check_shaped(name, Seed::ViaSum, broadcast_to);
+    }
+}
+
+#[test]
+fn sum_to_matches_python() {
+    for name in [
+        "sum_to_2d_to_row",
+        "sum_to_2d_to_col",
+        "sum_to_2d_to_scalar",
+        "sum_to_3d_to_2d",
+        "sum_to_3d_to_1",
+        "sum_to_noop",
+    ] {
+        check_shaped(name, Seed::ViaSum, sum_to);
+    }
+}
+
+// --- step 40: broadcasting through the arithmetic ops ---------------------
+//
+// The forward values are the easy half. What these pin down is the *fold*:
+// an operand that was stretched gets the sum over its copies back, and it must
+// arrive at the operand's original shape rather than the broadcast one.
+
+#[test]
+fn broadcast_add_matches_python() {
+    check_binary("bcast_add_row", |a, b| a + b);
+    check_binary("bcast_add_col", |a, b| a + b);
+    check_binary("bcast_add_scalar_arr", |a, b| a + b);
+    check_binary("bcast_3d_add", |a, b| a + b);
+}
+
+#[test]
+fn broadcast_mul_matches_python() {
+    check_binary("bcast_mul_row", |a, b| a * b);
+    check_binary("bcast_mul_col", |a, b| a * b);
+}
+
+#[test]
+fn broadcast_sub_matches_python() {
+    check_binary("bcast_sub_row", |a, b| a - b);
+}
+
+#[test]
+fn broadcast_div_matches_python() {
+    check_binary("bcast_div_row", |a, b| a / b);
+}
+
+/// The smaller operand on the *left*. `ndarray`'s own operators broadcast only
+/// the right-hand side, so these two are the cases that would panic if the
+/// forward pass leaned on them.
+#[test]
+fn broadcast_with_the_smaller_operand_first_matches_python() {
+    check_binary("bcast_add_rev", |a, b| a + b);
+    check_binary("bcast_sub_rev", |a, b| a - b);
 }

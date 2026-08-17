@@ -69,11 +69,11 @@ The hard part: backward must itself build a graph (`create_graph`).
 
 ## Phase 6 — Tensor operations (steps 36–40)
 
-- ☐ 36 — double-backprop application (`create_graph` in user code)
-- ☐ 37 — tensor-shaped forward/backward
-- ☐ 38 — `reshape`, `transpose`
-- ☐ 39 — `sum` (with `axis`, `keepdims`)
-- ☐ 40 — broadcasting: `broadcast_to`, `sum_to`
+- ☑ 36 — double-backprop application (`create_graph` in user code)
+- ☑ 37 — tensor-shaped forward/backward
+- ☑ 38 — `reshape`, `transpose`
+- ☑ 39 — `sum` (with `axis`, `keepdims`)
+- ☑ 40 — broadcasting: `broadcast_to`, `sum_to`
 
 ## Phase 7 — Neural networks (steps 41–48)
 

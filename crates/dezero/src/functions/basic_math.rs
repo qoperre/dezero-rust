@@ -20,7 +20,7 @@
 use ndarray::ArrayD;
 
 use crate::core::function::{Op, apply1};
-use crate::core::ops::{constant_like, mul, neg, one, sub};
+use crate::core::ops::{mul, neg, one, scalar, sub};
 use crate::core::variable::Variable;
 
 /// `y = x ** 2`, elementwise.
@@ -42,8 +42,8 @@ impl Op for Square {
         let x = one(inputs, "Square", "input");
         let gy = one(gys, "Square", "output gradient");
         // gx = 2 * x * gy, built from Variables so it can be differentiated
-        // again.
-        vec![mul(&mul(&constant_like(2.0, x), x), gy)]
+        // again. The 2 stays 0-d and broadcasts, as Python's plain `2` does.
+        vec![mul(&mul(&scalar(2.0), x), gy)]
     }
 }
 
@@ -206,8 +206,7 @@ impl Op for Tanh {
         // `y` is the same graph node the forward pass produced, so a second
         // backward pass walks back through this very op — that is where
         // step 35's deep derivative graph comes from.
-        let ones = constant_like(1.0, y);
-        vec![mul(gy, &sub(&ones, &mul(y, y)))]
+        vec![mul(gy, &sub(&scalar(1.0), &mul(y, y)))]
     }
 }
 

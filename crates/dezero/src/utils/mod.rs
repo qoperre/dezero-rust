@@ -1,8 +1,12 @@
 //! Helpers that support the core but are not part of the graph.
 //!
-//! Currently: finite-difference differentiation, ported from
-//! `vendor/dezero-python/dezero/utils.py` (`numerical_grad`, `gradient_check`)
-//! and `steps/step04.py` (`numerical_diff`).
+//! * this module — finite-difference differentiation, ported from
+//!   `vendor/dezero-python/dezero/utils.py` (`numerical_grad`,
+//!   `gradient_check`) and `steps/step04.py` (`numerical_diff`);
+//! * [`shape`] — the array-level shape arithmetic broadcasting is built from
+//!   (`sum_to`, `reshape_sum_backward`), also from `dezero/utils.py`.
+
+pub mod shape;
 
 use std::error::Error;
 use std::fmt;

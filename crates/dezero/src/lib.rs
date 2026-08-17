@@ -15,8 +15,11 @@
 //!   and the driver that connects the two.
 //! * [`Variable::backward`] — generation-ordered reverse-mode differentiation.
 //! * [`no_grad`] / [`test_mode`] — scoped configuration.
-//! * arithmetic ([`add`], [`mul`], ...) with full operator sugar, and the
-//!   elementary functions [`square`], [`exp`], [`sin`], [`cos`], [`tanh`].
+//! * arithmetic ([`add`], [`mul`], ...) with full operator sugar and numpy
+//!   broadcasting, and the elementary functions [`square`], [`exp`], [`sin`],
+//!   [`cos`], [`tanh`].
+//! * tensor shape manipulation — [`reshape`], [`transpose`] — and the
+//!   reductions [`sum`], [`sum_to`], [`broadcast_to`].
 //!
 //! # Example
 //!
@@ -70,11 +73,25 @@
 //! assert!((derivative.data().expect("data").sum() - 1.0_f64.sin()).abs() < 1e-12);
 //! ```
 //!
-//! # Not yet implemented
+//! # Broadcasting
 //!
-//! Broadcasting between differently shaped operands (step 40) is rejected with
-//! a panic rather than silently producing wrong gradients; see
-//! [`core::ops`].
+//! Differently shaped operands broadcast by numpy's rules, and each gradient is
+//! folded back onto its own operand's shape with [`sum_to`]:
+//!
+//! ```
+//! use dezero::Variable;
+//! use ndarray::{arr1, arr2};
+//!
+//! let matrix = Variable::new(arr2(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).into_dyn());
+//! let row = Variable::new(arr1(&[10.0, 20.0, 30.0]).into_dyn());
+//!
+//! let y = &matrix + &row;
+//! y.backward();
+//!
+//! // The row was used once per matrix row, so its gradient counts both.
+//! assert_eq!(y.shape(), Some(vec![2, 3]));
+//! assert_eq!(row.grad().and_then(|g| g.data()), Some(arr1(&[2.0, 2.0, 2.0]).into_dyn()));
+//! ```
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -88,4 +105,8 @@ pub use crate::core::function::{Function, FunctionInner, Op, apply, apply1};
 pub use crate::core::ops::{Add, Div, Mul, Neg, Pow, Sub, add, div, mul, neg, pow, sub};
 pub use crate::core::variable::{Variable, VariableInner};
 pub use crate::functions::basic_math::{Cos, Exp, Sin, Square, Tanh, cos, exp, sin, square, tanh};
+pub use crate::functions::reduce::{
+    Axes, BroadcastTo, Sum, SumTo, broadcast_to, sum, sum_all, sum_to,
+};
+pub use crate::functions::shape::{Reshape, Transpose, reshape, transpose};
 pub use crate::utils::{GradientCheckError, GradientMismatch, gradient_check, numerical_diff};
