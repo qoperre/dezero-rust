@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: fmt / clippy / build / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false # vendor/dezero-python is Python-only; not needed for the Rust job
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo build
+        run: cargo build --workspace --verbose
+
+      - name: cargo test
+        run: cargo test --workspace --verbose
+
+  parity-fixtures-fresh:
+    name: parity fixtures are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install DeZero reference deps
+        run: python -m pip install numpy matplotlib
+
+      - name: Regenerate fixtures and diff against committed ones
+        run: |
+          python tests/parity/gen_fixtures.py
+          git diff --exit-code -- tests/parity/fixtures

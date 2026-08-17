@@ -1,0 +1,3 @@
+[submodule "vendor/dezero-python"]
+	path = vendor/dezero-python
+	url = https://github.com/oreilly-japan/deep-learning-from-scratch-3.git

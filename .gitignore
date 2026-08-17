@@ -1,0 +1,16 @@
+/target
+**/target
+Cargo.lock
+
+# Python (fixture generator venv / caches)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Claude Code local overrides
+.claude/settings.local.json
+
+# Unrelated standalone practice exercises (own git repos, not part of this project)
+/exercise/
+/typee/
