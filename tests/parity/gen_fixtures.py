@@ -123,6 +123,74 @@ def main():
         binary(f"{fn_name}_scalar", fn, np.array(1.0), np.array(1.0))
         binary(f"{fn_name}_2d", fn, x, np.random.randn(2, 3))
 
+    # --- step 27: sin, and its Taylor-series approximation ---------------
+    unary("sin", F.sin, small)
+    unary("cos", F.cos, small)
+    unary("tanh", F.tanh, small)
+
+    gen_higher_order()
+    gen_newton()
+
+
+def gen_higher_order():
+    """Steps 33-35: nth derivatives via repeated create_graph backward."""
+    # sin, to 4th derivative (step 34's plot, as numbers).
+    xs = np.linspace(-7.0, 7.0, 21)
+    v = Variable(xs.copy())
+    y = F.sin(v)
+    y.backward(create_graph=True)
+    derivs = [arr(y.data)]
+    for _ in range(3):
+        derivs.append(arr(v.grad.data))
+        gx = v.grad
+        v.cleargrad()
+        gx.backward(create_graph=True)
+    write_fixture("sin_higher_order", {"input": arr(xs), "derivatives": derivs})
+
+    # tanh, to 3rd derivative (step 35), at 0-d like the book.
+    t = np.array(1.0)
+    v = Variable(t.copy())
+    y = F.tanh(v)
+    y.backward(create_graph=True)
+    derivs = [arr(y.data)]
+    for _ in range(2):
+        derivs.append(arr(v.grad.data))
+        gx = v.grad
+        v.cleargrad()
+        gx.backward(create_graph=True)
+    write_fixture("tanh_higher_order", {"input": arr(t), "derivatives": derivs})
+
+    # y = x^4 - 2x^2 -- step 33's function, first and second derivative.
+    z = np.array(2.0)
+    v = Variable(z.copy())
+    y = v**4 - 2 * v**2
+    y.backward(create_graph=True)
+    gx = v.grad
+    first = arr(gx.data)
+    v.cleargrad()
+    gx.backward()
+    write_fixture(
+        "quartic_second_deriv",
+        {"input": arr(z), "output": arr(y.data), "grad": first, "grad2": arr(v.grad.data)},
+    )
+
+
+def gen_newton():
+    """Step 33: 10 Newton iterations on y = x^4 - 2x^2 from x=2."""
+    v = Variable(np.array(2.0))
+    trace = [float(v.data)]
+    for _ in range(10):
+        y = v**4 - 2 * v**2
+        v.cleargrad()
+        y.backward(create_graph=True)
+        gx = v.grad
+        v.cleargrad()
+        gx.backward()
+        gx2 = v.grad
+        v.data -= gx.data / gx2.data
+        trace.append(float(v.data))
+    write_fixture("newton_quartic", {"start": 2.0, "iterations": 10, "trace": trace})
+
 
 if __name__ == "__main__":
     main()
