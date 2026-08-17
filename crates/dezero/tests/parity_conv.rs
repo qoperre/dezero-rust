@@ -212,3 +212,73 @@ fn pooling_k2s2p0_matches_python() {
 fn pooling_k3s1p1_matches_python() {
     check_pooling("pooling_k3s1p1");
 }
+
+// --- dropout (step 54) ---------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct DropoutFixture {
+    input: Arr,
+    ratio: f64,
+    mask: Arr,
+    train_output: Arr,
+    test_output: Arr,
+}
+
+/// Dropout's mask is random, so the fixture ships the one Python drew and the
+/// train case replays it through `dropout_with_mask`. The test case needs no
+/// mask at all: under `test_mode` dropout is the identity, which is exact
+/// parity rather than a tolerance check.
+#[test]
+fn dropout_matches_python() {
+    let fx: DropoutFixture = load("dropout");
+    let x = Variable::new(fx.input.to_array());
+
+    let y = dezero::dropout_with_mask(&x, fx.ratio, &fx.mask.to_array());
+    assert_close(
+        "dropout train",
+        &data_of(&y, "dropout"),
+        &fx.train_output.to_array(),
+        RTOL,
+    );
+
+    // The gradient follows the same scaled mask.
+    sum_all(&y).backward();
+    let expected_grad = fx.mask.to_array().mapv(|m| m / (1.0 - fx.ratio));
+    assert_close(
+        "dropout grad",
+        &grad_of(&x, "dropout"),
+        &expected_grad,
+        GRAD_RTOL,
+    );
+
+    let guard = dezero::test_mode();
+    let y = dezero::dropout(&x, fx.ratio);
+    assert_eq!(
+        y.data(),
+        Some(fx.test_output.to_array()),
+        "under test_mode dropout is exactly the identity, not merely close"
+    );
+    drop(guard);
+}
+
+/// The drawn mask must actually be Bernoulli: every element is either dropped
+/// or scaled by exactly `1/(1 - ratio)`, never anything in between.
+#[test]
+fn a_drawn_dropout_mask_is_bernoulli() {
+    let x = Variable::new(ArrayD::from_elem(IxDyn(&[40, 40]), 1.0));
+    let ratio = 0.25;
+    let y = dezero::dropout(&x, ratio);
+    let scale = 1.0 / (1.0 - ratio);
+
+    let data = data_of(&y, "dropout");
+    assert!(
+        data.iter().all(|v| *v == 0.0 || (*v - scale).abs() < 1e-12),
+        "every element is either dropped or scaled by 1/(1 - ratio)"
+    );
+    let kept = data.iter().filter(|v| **v != 0.0).count();
+    let expected = (1.0 - ratio) * 1600.0;
+    assert!(
+        (kept as f64 - expected).abs() < 200.0,
+        "roughly (1 - ratio) of 1600 elements survive, got {kept}"
+    );
+}

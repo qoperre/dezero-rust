@@ -169,7 +169,7 @@ pub use crate::data::idx::{IdxArray, IdxError, decode_idx, read_idx};
 pub use crate::data::mnist::{Mnist, MnistError, cache_dir as mnist_cache_dir};
 pub use crate::data::{Batch, DataLoader, Dataset, MapInput, MapLabel, Spiral};
 pub use crate::functions::activation::{
-    ReLU, Sigmoid, Softmax, relu, sigmoid, softmax, softmax_axis,
+    ReLU, Sigmoid, Softmax, dropout, dropout_with_mask, relu, sigmoid, softmax, softmax_axis,
 };
 pub use crate::functions::basic_math::{Cos, Exp, Sin, Square, Tanh, cos, exp, sin, square, tanh};
 pub use crate::functions::conv::{

@@ -284,6 +284,114 @@ pub fn softmax_axis(x: &Variable, axis: isize) -> Variable {
     apply1(Softmax::new(axis), &[x])
 }
 
+// ---------------------------------------------------------------------------
+// Dropout (step 54)
+// ---------------------------------------------------------------------------
+
+/// `y = x * mask / (1 - ratio)` with a caller-supplied mask.
+///
+/// This is the testable half of [`dropout`]. The mask is a **constant** — a
+/// detached variable with no creator — so the multiplication is a graph node
+/// while the mask itself is never differentiated, exactly as in the reference.
+///
+/// Inverted dropout: scaling by `1/(1 - ratio)` during training is what lets
+/// test time be a plain identity instead of a rescale.
+///
+/// # Panics
+///
+/// Panics if `x` holds no data, if `mask`'s shape differs from `x`'s, or if
+/// `ratio` is outside `[0, 1)`. `ratio == 1` would drop everything and divide
+/// by zero.
+///
+/// # Examples
+///
+/// ```
+/// use dezero::{dropout_with_mask, Variable};
+/// use ndarray::arr1;
+///
+/// let x = Variable::new(arr1(&[1.0, 2.0, 3.0, 4.0]).into_dyn());
+/// let mask = arr1(&[1.0, 0.0, 1.0, 0.0]).into_dyn();
+///
+/// // Survivors are scaled by 1/(1 - 0.5) = 2; the dropped ones vanish.
+/// let y = dropout_with_mask(&x, 0.5, &mask);
+/// assert_eq!(y.data(), Some(arr1(&[2.0, 0.0, 6.0, 0.0]).into_dyn()));
+///
+/// // The gradient follows the same mask.
+/// y.backward();
+/// assert_eq!(
+///     x.grad().and_then(|g| g.data()),
+///     Some(arr1(&[2.0, 0.0, 2.0, 0.0]).into_dyn())
+/// );
+/// ```
+#[must_use]
+pub fn dropout_with_mask(x: &Variable, ratio: f64, mask: &ArrayD<f64>) -> Variable {
+    assert!(
+        (0.0..1.0).contains(&ratio),
+        "dezero: dropout ratio must be in [0, 1), got {ratio}"
+    );
+    let data = data_of(x, "dropout");
+    assert_eq!(
+        data.shape(),
+        mask.shape(),
+        "dezero: dropout mask shape {:?} does not match the input {:?}",
+        mask.shape(),
+        data.shape()
+    );
+
+    // Built from existing differentiable ops rather than a bespoke `Op`: there
+    // is no new derivative to define, so a new node type would only be more
+    // code to get wrong. `scale` folds into the mask so the graph stays two
+    // nodes deep instead of three.
+    let scaled = Variable::new(mask.mapv(|m| m / (1.0 - ratio)));
+    mul(x, &scaled)
+}
+
+/// Inverted dropout — Python's `dezero.functions.dropout`.
+///
+/// In training mode (the default) this draws a fresh Bernoulli mask and
+/// returns [`dropout_with_mask`]. Under [`test_mode`](crate::test_mode) it is
+/// the **identity**, returning `x` itself with no graph node added — matching
+/// the reference, which returns `x` unchanged rather than multiplying by ones.
+///
+/// The mask comes from the crate's own RNG, whose stream cannot match numpy's
+/// (see [`rand`](crate::rand)). Any test that needs a *particular* mask must
+/// supply it through [`dropout_with_mask`]; that is what the parity fixture
+/// does.
+///
+/// # Panics
+///
+/// Panics if `x` holds no data, or if `ratio` is outside `[0, 1)`.
+///
+/// # Examples
+///
+/// ```
+/// use dezero::{dropout, test_mode, Variable};
+/// use ndarray::arr1;
+///
+/// let x = Variable::new(arr1(&[1.0, 2.0, 3.0]).into_dyn());
+///
+/// // Under test mode dropout is exactly the identity.
+/// let guard = test_mode();
+/// let y = dropout(&x, 0.5);
+/// assert_eq!(y.data(), x.data());
+/// drop(guard);
+///
+/// // In training mode every surviving element is scaled by 1/(1 - ratio).
+/// let y = dropout(&x, 0.5);
+/// for (out, inp) in y.data().expect("data").iter().zip(x.data().expect("data").iter()) {
+///     assert!(*out == 0.0 || (*out - 2.0 * inp).abs() < 1e-12);
+/// }
+/// ```
+#[must_use]
+pub fn dropout(x: &Variable, ratio: f64) -> Variable {
+    if !crate::core::config::is_train() {
+        return x.clone();
+    }
+    let shape: Vec<usize> = data_of(x, "dropout").shape().to_vec();
+    let mask = crate::utils::random::rand(&shape).mapv(|u| f64::from(u > ratio));
+    dropout_with_mask(x, ratio, &mask)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

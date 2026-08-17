@@ -75,3 +75,38 @@ cargo fmt --all --check                                    clean
 Steps 53 (model save/load), 54 (dropout), and 58 (VGG16) are **not** done.
 `utils/random.rs` documents a `dropout_with_mask` that does not exist yet —
 that link resolves once step 54 lands.
+
+---
+
+## Step 54 — dropout (added after the above)
+
+`dropout_with_mask(x, ratio, &mask)` and `dropout(x, ratio)` in
+`functions/activation.rs`.
+
+Built from existing differentiable ops rather than a bespoke `Op`: there is no
+new derivative to define — it is `x * (mask / (1 - ratio))` — so a new node
+type would only be more code to get wrong. The scale folds into the mask so
+the graph stays two nodes deep instead of three.
+
+Inverted dropout, matching the reference: scaling by `1/(1 - ratio)` during
+training is what lets test time be a plain identity. Under
+`test_mode()` the function returns `x` itself and adds **no graph node**,
+exactly as Python returns `x` unchanged rather than multiplying by ones.
+
+The split into two functions is what makes it testable. The mask is random and
+this crate's RNG cannot reproduce numpy's stream, so the fixture ships the mask
+Python drew and the parity test replays it through `dropout_with_mask`. The
+test-mode half needs no mask and is asserted with `assert_eq!` — exact
+identity, not a tolerance.
+
+A second test pins that a *drawn* mask is genuinely Bernoulli: every element is
+either dropped or scaled by exactly `1/(1 - ratio)`, never anything between,
+and roughly `(1 - ratio)` of them survive.
+
+**Verified:** 613 tests pass; clippy `-D warnings` and fmt clean, each checked
+separately.
+
+## Still open
+
+Steps 53 (model save/load) and 58 (VGG16), plus 25–26 (DOT graph) and 59–60
+(RNN/LSTM).
