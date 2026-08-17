@@ -130,6 +130,8 @@ def main():
 
     gen_higher_order()
     gen_newton()
+    gen_tensor_ops()
+    gen_broadcast_matrix()
 
 
 def gen_higher_order():
@@ -191,6 +193,151 @@ def gen_newton():
         trace.append(float(v.data))
     write_fixture("newton_quartic", {"start": 2.0, "iterations": 10, "trace": trace})
 
+
+
+def gen_tensor_ops():
+    """Steps 38-39: reshape, transpose, sum (axis/keepdims combinations)."""
+    np.random.seed(1)
+    x2 = np.random.randn(2, 3)
+    x3 = np.random.randn(2, 3, 4)
+
+    # --- reshape ---------------------------------------------------------
+    for tag, src, shape in (
+        ("2d_to_1d", x2, (6,)),
+        ("2d_to_3d", x2, (1, 2, 3)),
+        ("3d_to_2d", x3, (6, 4)),
+        ("to_scalarish", np.array([[7.0]]), (1,)),
+    ):
+        v = Variable(src.copy())
+        y = F.reshape(v, shape)
+        y.backward()
+        write_fixture(
+            f"reshape_{tag}",
+            {
+                "input": arr(src),
+                "shape": list(shape),
+                "output": arr(y.data),
+                "grad": arr(v.grad.data),
+            },
+        )
+
+    # --- transpose -------------------------------------------------------
+    v = Variable(x2.copy())
+    y = F.transpose(v)
+    y.backward()
+    write_fixture(
+        "transpose_2d",
+        {"input": arr(x2), "output": arr(y.data), "grad": arr(v.grad.data)},
+    )
+
+    # --- sum, over every axis/keepdims combination that matters ----------
+    cases = [
+        ("all", x2, None, False),
+        ("all_keepdims", x2, None, True),
+        ("axis0", x2, 0, False),
+        ("axis1", x2, 1, False),
+        ("axis0_keepdims", x2, 0, True),
+        ("axis1_keepdims", x2, 1, True),
+        ("3d_axis0", x3, 0, False),
+        ("3d_axis1", x3, 1, False),
+        ("3d_axis2", x3, 2, False),
+        ("3d_axis1_keepdims", x3, 1, True),
+    ]
+    for tag, src, axis, keepdims in cases:
+        v = Variable(src.copy())
+        y = F.sum(v, axis=axis, keepdims=keepdims)
+        y.backward()
+        write_fixture(
+            f"sum_{tag}",
+            {
+                "input": arr(src),
+                "axis": axis,
+                "keepdims": keepdims,
+                "output": arr(y.data),
+                "grad": arr(v.grad.data),
+            },
+        )
+
+
+def gen_broadcast_matrix():
+    """Step 40: broadcast_to / sum_to, plus broadcasting through arithmetic.
+
+    This is the widest matrix in the suite on purpose -- numpy and ndarray
+    disagree at the edges, and a wrong gradient here is silent.
+    """
+    np.random.seed(2)
+
+    # --- broadcast_to ----------------------------------------------------
+    bcases = [
+        ("scalar_to_2d", np.array(3.0), (2, 3)),
+        ("row_to_2d", np.random.randn(3), (2, 3)),
+        ("col_to_2d", np.random.randn(2, 1), (2, 3)),
+        ("1_to_3d", np.random.randn(1, 3, 1), (2, 3, 4)),
+        ("noop", np.random.randn(2, 3), (2, 3)),
+    ]
+    for tag, src, shape in bcases:
+        v = Variable(src.copy())
+        y = F.broadcast_to(v, shape)
+        # Back-propagate from a scalar: when shape already matches, Python's
+        # broadcast_to returns x itself with no graph node, so y.backward()
+        # would crash. Seeding via sum() is mathematically identical (both
+        # seed ones over y) and covers the identity case too.
+        F.sum(y).backward()
+        write_fixture(
+            f"broadcast_to_{tag}",
+            {
+                "input": arr(src),
+                "shape": list(shape),
+                "output": arr(y.data),
+                "grad": arr(v.grad.data),
+            },
+        )
+
+    # --- sum_to ----------------------------------------------------------
+    scases = [
+        ("2d_to_row", np.random.randn(2, 3), (1, 3)),
+        ("2d_to_col", np.random.randn(2, 3), (2, 1)),
+        ("2d_to_scalar", np.random.randn(2, 3), (1, 1)),
+        ("3d_to_2d", np.random.randn(2, 3, 4), (3, 4)),
+        ("3d_to_1", np.random.randn(2, 3, 4), (1, 1, 1)),
+        ("noop", np.random.randn(2, 3), (2, 3)),
+    ]
+    for tag, src, shape in scases:
+        v = Variable(src.copy())
+        y = F.sum_to(v, shape)
+        F.sum(y).backward()
+        write_fixture(
+            f"sum_to_{tag}",
+            {
+                "input": arr(src),
+                "shape": list(shape),
+                "output": arr(y.data),
+                "grad": arr(v.grad.data),
+            },
+        )
+
+    # --- broadcasting *through* the arithmetic ops (retires divergence 2) -
+    acases = [
+        ("add_row", "add", np.random.randn(2, 3), np.random.randn(3)),
+        ("add_col", "add", np.random.randn(2, 3), np.random.randn(2, 1)),
+        ("add_scalar_arr", "add", np.random.randn(2, 3), np.array(2.0)),
+        ("mul_row", "mul", np.random.randn(2, 3), np.random.randn(3)),
+        ("mul_col", "mul", np.random.randn(2, 3), np.random.randn(2, 1)),
+        ("sub_row", "sub", np.random.randn(2, 3), np.random.randn(3)),
+        ("div_row", "div", np.random.randn(2, 3), np.abs(np.random.randn(3)) + 0.5),
+        # reversed operand order: the smaller array on the left
+        ("add_rev", "add", np.random.randn(3), np.random.randn(2, 3)),
+        ("sub_rev", "sub", np.random.randn(3), np.random.randn(2, 3)),
+        ("3d_add", "add", np.random.randn(2, 3, 4), np.random.randn(3, 4)),
+    ]
+    ops = {
+        "add": lambda a, b: a + b,
+        "mul": lambda a, b: a * b,
+        "sub": lambda a, b: a - b,
+        "div": lambda a, b: a / b,
+    }
+    for tag, opname, a, b in acases:
+        binary(f"bcast_{tag}", ops[opname], a, b)
 
 if __name__ == "__main__":
     main()
