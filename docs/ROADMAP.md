@@ -19,25 +19,25 @@ automatic → recursion → loop.
 
 - ☑ 01 — `Variable` as a data box
 - ☑ 02 — `Function` / `Square`
-- ☐ 03 — function composition (`Exp`, chaining)
-- ☐ 04 — numerical differentiation
-- ☐ 05 — ▨ backprop theory
-- ☐ 06 — manual backprop
-- ☐ 07 — automatic backprop (recursive, via `creator`)
-- ☐ 08 — recursion → loop
-- ☐ 09 — ergonomics: `as_array`, `as_variable`, auto `grad` init
-- ☐ 10 — unit tests / gradient check
+- ☑ 03 — function composition (`Exp`, chaining)
+- ☑ 04 — numerical differentiation
+- ☑ 05 — ▨ backprop theory
+- ☑ 06 — manual backprop
+- ☑ 07 — automatic backprop (recursive, via `creator`)
+- ☑ 08 — recursion → loop
+- ☑ 09 — ergonomics: `as_array`, `as_variable`, auto `grad` init
+- ☑ 10 — unit tests / gradient check
 
 ## Phase 2 — Variadic functions & memory (steps 11–18)
 
-- ☐ 11 — variadic inputs/outputs (`Add`)
-- ☐ 12 — improved variadic call API
-- ☐ 13 — backprop through variadic functions
-- ☐ 14 — repeated-use grad accumulation + `cleargrad`
-- ☐ 15 — ▨ topology theory
-- ☐ 16 — `generation`-ordered backprop
-- ☐ 17 — weakrefs (Rust: `Weak`) to break graph cycles
-- ☐ 18 — memory saving: `retain_grad`, `Config.enable_backprop`, `no_grad()`
+- ☑ 11 — variadic inputs/outputs (`Add`)
+- ☑ 12 — improved variadic call API
+- ☑ 13 — backprop through variadic functions
+- ☑ 14 — repeated-use grad accumulation + `cleargrad`
+- ☑ 15 — ▨ topology theory
+- ☑ 16 — `generation`-ordered backprop
+- ☑ 17 — weakrefs (Rust: `Weak`) to break graph cycles
+- ☑ 18 — memory saving: `retain_grad`, `Config.enable_backprop`, `no_grad()`
 
 ## Phase 3 — Usability (steps 19–24)
 

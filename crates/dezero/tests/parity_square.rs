@@ -49,12 +49,47 @@ fn square_matches_python_reference() {
     let y = square(&x);
 
     let actual_output = y
-        .data
+        .data()
+        .expect("square should produce data")
         .into_dimensionality::<ndarray::Ix2>()
         .expect("square should preserve dimensionality");
 
     assert!(
         allclose(&actual_output, &expected_output, 1e-5, 1e-8),
         "square output did not match Python reference:\nactual: {actual_output:?}\nexpected: {expected_output:?}"
+    );
+}
+
+/// The fixture only pins the forward pass, but the same input exercises the
+/// backward pass: `d(x^2)/dx = 2x`, which is where the port's autodiff engine
+/// actually differs from the placeholder it replaced.
+#[test]
+fn square_backward_matches_two_x() {
+    let fixture_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/parity/fixtures/square.json"
+    );
+    let contents = std::fs::read_to_string(fixture_path)
+        .unwrap_or_else(|e| panic!("failed to read fixture at {fixture_path}: {e}"));
+    let fixture: SquareFixture =
+        serde_json::from_str(&contents).expect("fixture should be valid JSON");
+
+    let input = to_array2(&fixture.input);
+    let expected_grad = input.mapv(|v| 2.0 * v);
+
+    let x = Variable::new(input.into_dyn());
+    let y = square(&x);
+    y.backward();
+
+    let actual_grad = x
+        .grad()
+        .and_then(|g| g.data())
+        .expect("backward should fill in the gradient")
+        .into_dimensionality::<ndarray::Ix2>()
+        .expect("the gradient has the shape of the input");
+
+    assert!(
+        allclose(&actual_grad, &expected_grad, 1e-5, 1e-8),
+        "square gradient did not match 2x:\nactual: {actual_grad:?}\nexpected: {expected_grad:?}"
     );
 }

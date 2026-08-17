@@ -1,74 +1,71 @@
-//! A minimal Rust port of the core `DeZero` types, following the
-//! "Deep Learning from Scratch 3" book (steps 1-2).
+//! A Rust port of **DeZero**, the teaching autodiff framework from
+//! *Deep Learning from Scratch 3*, on top of [`ndarray`].
 //!
-//! This crate currently implements only the `Variable` container and the
-//! `square` function, as a first slice to prove out the Python/Rust
-//! parity-testing harness end-to-end.
+//! The reference implementation lives in `vendor/dezero-python/` and is the
+//! authority on semantics; `docs/ARCHITECTURE.md` records the design decisions
+//! that differ because Rust is not Python.
+//!
+//! # What is here
+//!
+//! The complete core engine — the semantics of the book's steps 1–18, but
+//! built in its final shape rather than the book's incremental narrative:
+//!
+//! * [`Variable`] — a graph node: data, gradient, creator, generation.
+//! * [`Op`] / [`Function`] / [`apply`] — an operation, one invocation of it,
+//!   and the driver that connects the two.
+//! * [`Variable::backward`] — generation-ordered reverse-mode differentiation.
+//! * [`no_grad`] / [`test_mode`] — scoped configuration.
+//! * arithmetic ([`add`], [`mul`], ...) with full operator sugar, and
+//!   [`square`] / [`exp`].
+//!
+//! # Example
+//!
+//! ```
+//! use dezero::{square, Variable};
+//!
+//! let x = Variable::from_scalar(2.0);
+//! let y = square(&x) * 3.0 + 1.0; // y = 3x^2 + 1
+//! y.backward();
+//!
+//! assert_eq!(y.data(), Variable::from_scalar(13.0).data());
+//! // dy/dx = 6x = 12
+//! assert_eq!(x.grad().and_then(|g| g.data()), Variable::from_scalar(12.0).data());
+//! ```
+//!
+//! # Gradients are variables
+//!
+//! `x.grad()` is a [`Variable`], not an array, so a gradient can be
+//! differentiated again — that is what `create_graph` is for:
+//!
+//! ```
+//! use dezero::{pow, Variable};
+//!
+//! let x = Variable::from_scalar(2.0);
+//! let y = pow(&x, 3.0);
+//! y.backward_with(false, true);
+//!
+//! let gx = x.grad().expect("dy/dx = 3x^2 = 12");
+//! x.cleargrad();
+//! gx.backward();
+//! assert_eq!(x.grad().and_then(|g| g.data()), Variable::from_scalar(12.0).data()); // 6x
+//! ```
+//!
+//! # Not yet implemented
+//!
+//! Broadcasting between differently shaped operands (step 40) is rejected with
+//! a panic rather than silently producing wrong gradients; see
+//! [`core::ops`].
 
-use ndarray::ArrayD;
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
 
-/// A container for an n-dimensional array of `f64` values.
-///
-/// Mirrors the Python `Variable` class from `DeZero`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Variable {
-    /// The underlying n-dimensional data.
-    pub data: ArrayD<f64>,
-}
+pub mod core;
+pub mod functions;
+pub mod utils;
 
-impl Variable {
-    /// Creates a new `Variable` wrapping the given data.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ndarray::arr1;
-    /// use dezero::Variable;
-    ///
-    /// let v = Variable::new(arr1(&[1.0, 2.0, 3.0]).into_dyn());
-    /// assert_eq!(v.data.len(), 3);
-    /// ```
-    #[must_use]
-    pub fn new(data: ArrayD<f64>) -> Self {
-        Self { data }
-    }
-}
-
-/// Computes the elementwise square of `x`.
-///
-/// Mirrors the Python `Square` `Function` from `DeZero`: `y = x ** 2`.
-///
-/// # Examples
-///
-/// ```
-/// use ndarray::arr1;
-/// use dezero::{square, Variable};
-///
-/// let x = Variable::new(arr1(&[1.0, 2.0, 3.0]).into_dyn());
-/// let y = square(&x);
-/// assert_eq!(y.data, arr1(&[1.0, 4.0, 9.0]).into_dyn());
-/// ```
-#[must_use]
-pub fn square(x: &Variable) -> Variable {
-    Variable::new(x.data.mapv(|v| v * v))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ndarray::{arr0, arr1};
-
-    #[test]
-    fn square_scalar() {
-        let x = Variable::new(arr0(3.0).into_dyn());
-        let y = square(&x);
-        assert_eq!(y.data, arr0(9.0).into_dyn());
-    }
-
-    #[test]
-    fn square_1d() {
-        let x = Variable::new(arr1(&[1.0, -2.0, 3.0]).into_dyn());
-        let y = square(&x);
-        assert_eq!(y.data, arr1(&[1.0, 4.0, 9.0]).into_dyn());
-    }
-}
+pub use crate::core::config::{ConfigGuard, enable_backprop, is_train, no_grad, test_mode};
+pub use crate::core::function::{Function, FunctionInner, Op, apply, apply1};
+pub use crate::core::ops::{Add, Div, Mul, Neg, Pow, Sub, add, div, mul, neg, pow, sub};
+pub use crate::core::variable::{Variable, VariableInner};
+pub use crate::functions::basic_math::{Exp, Square, exp, square};
+pub use crate::utils::{GradientCheckError, GradientMismatch, gradient_check, numerical_diff};
