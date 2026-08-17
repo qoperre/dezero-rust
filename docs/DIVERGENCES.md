@@ -38,6 +38,7 @@ to that is a divergence and belongs in this file.
 | 26 | IDX header (step 51) | `np.frombuffer(..., offset=16)` + `reshape(-1,1,28,28)`, discarding the header | parses and validates magic, element type, rank, and big-endian dims | A wrong file errors instead of producing plausible garbage. Only element type `0x08` (u8) is decoded. |
 | 27 | **Step 52 — GPU** | `cuda.get_array_module` swaps numpy for cupy; `DataLoader` has `gpu`/`to_cpu()`/`to_gpu()` | **nothing.** No device module, no shim, no `gpu` field | There is no CUDA backend, and inventing a device abstraction that does nothing would be worse than its absence. Batches are always `ArrayD<f64>`. See `docs/GPU.md`. |
 | 28 | `Optimizer` hook storage (step 50) | `self.hooks` inherited from the base class | each impl declares `hooks()`/`hooks_mut()` | Rust traits have no inherited state. Same reasoning as row 19 and the `Layer` split. |
+| 29 | `SeqDataLoader` / `SinCurve` (step 60) | sequential batching over a regression dataset | **not ported** | `SinCurve` is a regression set, and `Dataset::label` is an `Option<usize>` class index (row 22). Widening it is row 22's flagged follow-up; bolting a second label type on here would make the trait worse to avoid one dataset. |
 
 <!-- Rows are appended as each step surfaces a real divergence. Keep the
      table ordered by the step that introduced the entry. -->

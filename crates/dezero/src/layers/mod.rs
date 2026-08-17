@@ -92,8 +92,10 @@
 //! ```
 
 pub mod linear;
+pub mod rnn;
 
 pub use crate::layers::linear::Linear;
+pub use crate::layers::rnn::{Lstm, Rnn};
 
 use crate::core::parameter::Parameter;
 use crate::core::variable::Variable;

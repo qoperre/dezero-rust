@@ -109,8 +109,8 @@ The hard part: backward must itself build a graph (`create_graph`).
 
 ## Phase 11 — RNN (steps 59–60)
 
-- ☐ 59 — `RNN` layer, sine-wave prediction, BPTT + `unchain_backward`
-- ☐ 60 — `LSTM`, `SeqDataLoader`
+- ☑ 59 — `RNN` layer, sine-wave prediction, BPTT + `unchain_backward`
+- ☑ 60 — `LSTM`, `SeqDataLoader`
 
 ---
 
