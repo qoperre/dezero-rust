@@ -45,6 +45,39 @@ committed.
 
 ## Status
 
-First slice ported: `Variable` (step 1) + `square` (step 2), with a passing
-parity test against the Python reference. The rest of the ~60 DeZero steps
-are ported incrementally from here.
+**All 60 steps ported.** See `docs/ROADMAP.md` for the step-by-step record and
+`docs/steps/` for what each group involved.
+
+```
+cargo test                          655 passed, 4 ignored
+cargo test --release -- --ignored     4 passed   (VGG16, slow in debug)
+cargo clippy --all-targets --all-features -- -D warnings   clean
+cargo fmt --all --check                                    clean
+```
+
+86 golden fixtures generated from the Python reference are compared on every
+run — forward at `rtol=1e-5`, gradients at `rtol=1e-4`. The two integration
+fixtures are the load-bearing ones: a 50-step MLP training run matches Python
+to 3.7e-16 on the loss trace, and a 300-step spiral classification run to
+4.5e-16.
+
+Dependencies: `ndarray`, `flate2` (gzip, for MNIST), `serde`/`serde_json`
+(weights files). Everything else — the autodiff engine, broadcasting, im2col,
+the RNG — is written here.
+
+### Deliberately not ported
+
+Recorded with reasons in `docs/DIVERGENCES.md` (32 entries) rather than
+silently skipped. The substantive ones:
+
+- **GPU (step 52).** No CUDA backend, and no fake device abstraction standing
+  in for one.
+- **Pretrained VGG16 weights (step 58)** and the **MNIST download (step 51)** —
+  both need an HTTP client this crate does not have. The MNIST *reader* is
+  implemented and tested against synthetic archives.
+- **`SeqDataLoader`/`SinCurve` (step 60)** — `SinCurve` is a regression
+  dataset, and `Dataset::label` is a class index. Widening it is tracked, not
+  forgotten.
+
+Two divergences were **retired** when their step arrived: mismatched-shape
+operands stopped panicking and started broadcasting at step 40.
