@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/fmt_on_save.py",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/fmt_on_save.py\"",
             "timeout": 30,
             "statusMessage": "cargo fmt"
           }
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/stop_gate.py",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/stop_gate.py\"",
             "timeout": 300,
             "statusMessage": "cargo fmt --check && clippy && test"
           }
