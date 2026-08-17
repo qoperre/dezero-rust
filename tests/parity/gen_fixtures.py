@@ -3,8 +3,11 @@
 Run with an interpreter that has numpy (and matplotlib, which dezero imports):
     python tests/parity/gen_fixtures.py
 
-Each fixture lands in tests/parity/fixtures/<name>.json as plain nested lists,
-so the Rust side needs nothing beyond serde_json.
+## Fixture format
+
+Every array is stored rank-generically as `{"shape": [...], "data": [flat]}`,
+in C order. This handles 0-d scalars (`shape: []`) through the 4-d tensors the
+CNN steps will need, without the Rust side guessing at nesting depth.
 
 Fixtures are deterministic: inputs are either literal or drawn under a fixed
 np.random.seed. Never rely on seeding matching between numpy and Rust's `rand`
@@ -26,6 +29,12 @@ FIXTURES_DIR = pathlib.Path(__file__).resolve().parent / "fixtures"
 FIXTURES_DIR.mkdir(exist_ok=True)
 
 
+def arr(a):
+    """Serialise an ndarray rank-generically."""
+    a = np.asarray(a, dtype=np.float64)
+    return {"shape": list(a.shape), "data": a.ravel(order="C").tolist()}
+
+
 def write_fixture(name, payload):
     (FIXTURES_DIR / f"{name}.json").write_text(json.dumps(payload, indent=2))
     print(f"wrote {name}.json")
@@ -33,33 +42,51 @@ def write_fixture(name, payload):
 
 def unary(name, fn, x):
     """Forward + backward fixture for a single-input function."""
-    v = Variable(x.copy())
+    v = Variable(np.array(x, dtype=np.float64))
     y = fn(v)
     y.backward()
     write_fixture(
         name,
-        {
-            "input": x.tolist(),
-            "output": y.data.tolist(),
-            "grad": v.grad.data.tolist(),
-        },
+        {"input": arr(x), "output": arr(y.data), "grad": arr(v.grad.data)},
     )
 
 
 def binary(name, fn, x0, x1):
     """Forward + backward fixture for a two-input function."""
-    a, b = Variable(x0.copy()), Variable(x1.copy())
+    a = Variable(np.array(x0, dtype=np.float64))
+    b = Variable(np.array(x1, dtype=np.float64))
     y = fn(a, b)
     y.backward()
     write_fixture(
         name,
         {
-            "input0": x0.tolist(),
-            "input1": x1.tolist(),
-            "output": y.data.tolist(),
-            "grad0": a.grad.data.tolist(),
-            "grad1": b.grad.data.tolist(),
+            "input0": arr(x0),
+            "input1": arr(x1),
+            "output": arr(y.data),
+            "grad0": arr(a.grad.data),
+            "grad1": arr(b.grad.data),
         },
+    )
+
+
+# --- step 24: the book's benchmark optimisation functions -----------------
+
+
+def sphere(a, b):
+    return a**2 + b**2
+
+
+def matyas(a, b):
+    return 0.26 * (a**2 + b**2) - 0.48 * a * b
+
+
+def goldstein(a, b):
+    return (
+        1 + (a + b + 1) ** 2 * (19 - 14 * a + 3 * a**2 - 14 * b + 6 * a * b + 3 * b**2)
+    ) * (
+        30
+        + (2 * a - 3 * b) ** 2
+        * (18 - 32 * a + 12 * a**2 + 48 * b - 36 * a * b + 27 * b**2)
     )
 
 
@@ -70,16 +97,12 @@ def main():
     small = np.array([[-1.0, -0.5, 0.0], [0.5, 1.0, 1.5]])
     pos = np.array([[0.5, 1.0, 1.5], [2.0, 2.5, 3.0]])
 
-    # --- step 02: Square -------------------------------------------------
-    # Historical fixture: forward only, kept at its original shape so the
-    # existing parity_square test keeps passing unchanged.
-    write_fixture("square", {"input": x.tolist(), "output": (Variable(x) ** 2).data.tolist()})
+    # --- step 02: Square (forward only; the original fixture) ------------
+    write_fixture("square", {"input": arr(x), "output": arr((Variable(x) ** 2).data)})
 
     # --- steps 03-08: exp, composition, backprop -------------------------
     unary("exp", F.exp, small)
     unary("square_backward", lambda v: v**2, x)
-
-    # step03's composed function: y = square(exp(square(x)))
     unary("composed_sq_exp_sq", lambda v: (F.exp(v**2)) ** 2, small)
 
     # --- steps 11-14: add, and the repeated-variable accumulation case ----
@@ -92,9 +115,13 @@ def main():
     binary("div", lambda a, b: a / b, x, pos)
     unary("neg", lambda v: -v, x)
     unary("pow3", lambda v: v**3, x)
-
-    # A composite exercising several ops and a reused variable at once.
     unary("composite_arith", lambda v: (v * v + v) / 2.0 - v, x)
+
+    # --- step 24: deeply nested compositions -----------------------------
+    # 0-d (the book's own case) and 2-d, so the ops are exercised at both ranks.
+    for fn_name, fn in (("sphere", sphere), ("matyas", matyas), ("goldstein", goldstein)):
+        binary(f"{fn_name}_scalar", fn, np.array(1.0), np.array(1.0))
+        binary(f"{fn_name}_2d", fn, x, np.random.randn(2, 3))
 
 
 if __name__ == "__main__":

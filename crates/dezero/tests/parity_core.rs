@@ -3,64 +3,73 @@
 //!
 //! Every fixture pins both the forward result and the gradients, so these
 //! tests cover the ops *and* the backward traversal that produced them.
-//! Regenerate the fixtures with `python tests/parity/gen_fixtures.py`.
+//! Regenerate with `python tests/parity/gen_fixtures.py`.
 
 use dezero::{Variable, exp};
 use ndarray::{ArrayD, IxDyn};
 use serde::Deserialize;
 
-/// numpy `allclose` defaults for forward values.
+/// numpy `allclose` defaults, for forward values.
 const RTOL: f64 = 1e-5;
 const ATOL: f64 = 1e-8;
-/// Gradients travel through more floating-point operations than the forward
-/// pass, so they get a looser bound (still far tighter than any real bug).
+/// Gradients accumulate through more floating-point operations than the
+/// forward pass, so they get a looser bound -- still far tighter than any
+/// real bug would survive.
 const GRAD_RTOL: f64 = 1e-4;
+
+/// An ndarray serialised rank-generically: `shape: []` is a 0-d scalar.
+#[derive(Debug, Deserialize)]
+struct Arr {
+    shape: Vec<usize>,
+    data: Vec<f64>,
+}
+
+impl Arr {
+    fn to_array(&self) -> ArrayD<f64> {
+        ArrayD::from_shape_vec(IxDyn(&self.shape), self.data.clone())
+            .expect("fixture shape and data length should agree")
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct UnaryFixture {
-    input: Vec<Vec<f64>>,
-    output: Vec<Vec<f64>>,
-    grad: Vec<Vec<f64>>,
+    input: Arr,
+    output: Arr,
+    grad: Arr,
 }
 
 #[derive(Debug, Deserialize)]
 struct BinaryFixture {
-    input0: Vec<Vec<f64>>,
-    input1: Vec<Vec<f64>>,
-    output: Vec<Vec<f64>>,
-    grad0: Vec<Vec<f64>>,
-    grad1: Vec<Vec<f64>>,
+    input0: Arr,
+    input1: Arr,
+    output: Arr,
+    grad0: Arr,
+    grad1: Arr,
 }
 
-fn load(name: &str) -> String {
+fn load<T: for<'de> Deserialize<'de>>(name: &str) -> T {
     let path = format!(
         "{}/../../tests/parity/fixtures/{name}.json",
         env!("CARGO_MANIFEST_DIR")
     );
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read fixture at {path}: {e}"))
-}
-
-fn to_array(rows: &[Vec<f64>]) -> ArrayD<f64> {
-    let nrows = rows.len();
-    let ncols = rows.first().map_or(0, Vec::len);
-    let flat: Vec<f64> = rows.iter().flatten().copied().collect();
-    ArrayD::from_shape_vec(IxDyn(&[nrows, ncols]), flat)
-        .expect("fixture rows should form a rectangular matrix")
+    let contents = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read fixture at {path}: {e}"));
+    serde_json::from_str(&contents)
+        .unwrap_or_else(|e| panic!("fixture {name} should match the expected schema: {e}"))
 }
 
 fn assert_close(what: &str, actual: &ArrayD<f64>, expected: &ArrayD<f64>, rtol: f64) {
     assert_eq!(
         actual.shape(),
         expected.shape(),
-        "{what}: shape mismatch (actual {:?} vs Python {:?})",
+        "{what}: shape mismatch (Rust {:?} vs Python {:?})",
         actual.shape(),
         expected.shape()
     );
     for (a, e) in actual.iter().zip(expected.iter()) {
         assert!(
             (a - e).abs() <= ATOL + rtol * e.abs(),
-            "{what}: diverged from the Python reference\n  actual:   {actual:?}\n  expected: {expected:?}"
+            "{what}: diverged from the Python reference\n  Rust:   {actual:?}\n  Python: {expected:?}"
         );
     }
 }
@@ -76,57 +85,84 @@ fn grad_of(v: &Variable, what: &str) -> ArrayD<f64> {
         .unwrap_or_else(|| panic!("{what} should have a gradient after backward"))
 }
 
-/// Run a single-input fixture: build `x`, apply `f`, backward, compare both.
+/// Build `x` from the fixture, apply `f`, run backward, compare both sides.
 fn check_unary(name: &str, f: impl Fn(&Variable) -> Variable) {
-    let fx: UnaryFixture = serde_json::from_str(&load(name)).expect("fixture should be valid JSON");
-    let x = Variable::new(to_array(&fx.input));
+    let fx: UnaryFixture = load(name);
+    let x = Variable::new(fx.input.to_array());
     let y = f(&x);
     y.backward();
 
     assert_close(
         &format!("{name} forward"),
         &data_of(&y, name),
-        &to_array(&fx.output),
+        &fx.output.to_array(),
         RTOL,
     );
     assert_close(
         &format!("{name} grad"),
         &grad_of(&x, name),
-        &to_array(&fx.grad),
+        &fx.grad.to_array(),
         GRAD_RTOL,
     );
 }
 
-/// Run a two-input fixture, checking the gradient of *both* operands.
+/// Same, for two inputs -- checks the gradient of *both* operands.
 fn check_binary(name: &str, f: impl Fn(&Variable, &Variable) -> Variable) {
-    let fx: BinaryFixture =
-        serde_json::from_str(&load(name)).expect("fixture should be valid JSON");
-    let a = Variable::new(to_array(&fx.input0));
-    let b = Variable::new(to_array(&fx.input1));
+    let fx: BinaryFixture = load(name);
+    let a = Variable::new(fx.input0.to_array());
+    let b = Variable::new(fx.input1.to_array());
     let y = f(&a, &b);
     y.backward();
 
     assert_close(
         &format!("{name} forward"),
         &data_of(&y, name),
-        &to_array(&fx.output),
+        &fx.output.to_array(),
         RTOL,
     );
     assert_close(
         &format!("{name} grad0"),
         &grad_of(&a, name),
-        &to_array(&fx.grad0),
+        &fx.grad0.to_array(),
         GRAD_RTOL,
     );
     assert_close(
         &format!("{name} grad1"),
         &grad_of(&b, name),
-        &to_array(&fx.grad1),
+        &fx.grad1.to_array(),
         GRAD_RTOL,
     );
 }
 
 // --- steps 02-08: single-variable functions and composition ---------------
+
+/// The original step-02 fixture: forward only, and it pins `square()` itself
+/// rather than the `x * x` spelling the other tests use.
+#[test]
+fn square_matches_python() {
+    #[derive(Debug, Deserialize)]
+    struct ForwardOnly {
+        input: Arr,
+        output: Arr,
+    }
+
+    let fx: ForwardOnly = load("square");
+    let x = Variable::new(fx.input.to_array());
+    let y = dezero::square(&x);
+
+    assert_close(
+        "square forward",
+        &data_of(&y, "square"),
+        &fx.output.to_array(),
+        RTOL,
+    );
+
+    // The fixture only pins forward, but the same input exercises backward:
+    // d(x^2)/dx = 2x.
+    y.backward();
+    let expected = fx.input.to_array().mapv(|v| 2.0 * v);
+    assert_close("square grad", &grad_of(&x, "square"), &expected, GRAD_RTOL);
+}
 
 #[test]
 fn exp_matches_python() {
@@ -138,8 +174,8 @@ fn square_backward_matches_python() {
     check_unary("square_backward", |x| x * x);
 }
 
-/// step 03's composed chain, `y = square(exp(square(x)))` -- the case that
-/// first requires walking more than one link of the graph.
+/// step 03's composed chain, `y = square(exp(square(x)))` -- the first case
+/// that requires walking more than one link of the graph.
 #[test]
 fn composed_chain_matches_python() {
     check_unary("composed_sq_exp_sq", |x| {
@@ -188,9 +224,68 @@ fn pow_matches_python() {
     check_unary("pow3", |x| dezero::pow(x, 3.0));
 }
 
-/// Mixes scalar operands, a reused variable, and four different ops in one
-/// expression -- the closest thing here to real user code.
+/// Mixes scalar operands, a reused variable, and four ops in one expression.
 #[test]
 fn composite_arithmetic_matches_python() {
     check_unary("composite_arith", |x| &((x * x) + x) / 2.0 - x);
+}
+
+// --- step 24: the book's benchmark optimisation functions ---------------
+//
+// Pure compositions of the ops above, but nested deeply enough to be a real
+// exercise of the generation-ordered traversal. Each runs at 0-d (the book's
+// own case) and at 2-d.
+
+fn sphere(a: &Variable, b: &Variable) -> Variable {
+    &(a * a) + &(b * b)
+}
+
+fn matyas(a: &Variable, b: &Variable) -> Variable {
+    &(0.26 * (&(a * a) + &(b * b))) - &(0.48 * (a * b))
+}
+
+fn goldstein(a: &Variable, b: &Variable) -> Variable {
+    let s = &(&(a + b) + 1.0);
+    let left = 1.0
+        + &(&(s * s)
+            * &(&(&(&(19.0 - &(14.0 * a)) + &(3.0 * &(a * a))) - &(14.0 * b))
+                + &(&(6.0 * &(a * b)) + &(3.0 * &(b * b)))));
+
+    let t = &(&(2.0 * a) - &(3.0 * b));
+    let right = 30.0
+        + &(&(t * t)
+            * &(&(&(&(18.0 - &(32.0 * a)) + &(12.0 * &(a * a))) + &(48.0 * b))
+                + &(&(-36.0 * &(a * b)) + &(27.0 * &(b * b)))));
+
+    &left * &right
+}
+
+#[test]
+fn sphere_scalar_matches_python() {
+    check_binary("sphere_scalar", sphere);
+}
+
+#[test]
+fn sphere_2d_matches_python() {
+    check_binary("sphere_2d", sphere);
+}
+
+#[test]
+fn matyas_scalar_matches_python() {
+    check_binary("matyas_scalar", matyas);
+}
+
+#[test]
+fn matyas_2d_matches_python() {
+    check_binary("matyas_2d", matyas);
+}
+
+#[test]
+fn goldstein_scalar_matches_python() {
+    check_binary("goldstein_scalar", goldstein);
+}
+
+#[test]
+fn goldstein_2d_matches_python() {
+    check_binary("goldstein_2d", goldstein);
 }

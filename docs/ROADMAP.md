@@ -41,12 +41,12 @@ automatic → recursion → loop.
 
 ## Phase 3 — Usability (steps 19–24)
 
-- ☐ 19 — `Variable` properties (`shape`/`ndim`/`size`/`dtype`/`len`/`name`)
-- ☐ 20 — operator overloading: `+`, `*`
-- ☐ 21 — operands mixing `Variable` with scalars/arrays
-- ☐ 22 — `-`, `/`, `**`, unary neg, reversed ops
-- ☐ 23 — package layout (Rust: module layout)
-- ☐ 24 — complex-function smoke tests (Sphere, matyas, Goldstein-Price)
+- ☑ 19 — `Variable` properties (`shape`/`ndim`/`size`/`dtype`/`len`/`name`)
+- ☑ 20 — operator overloading: `+`, `*`
+- ☑ 21 — operands mixing `Variable` with scalars/arrays
+- ☑ 22 — `-`, `/`, `**`, unary neg, reversed ops
+- ☑ 23 — package layout (Rust: module layout)
+- ☑ 24 — complex-function smoke tests (Sphere, matyas, Goldstein-Price)
 
 ## Phase 4 — Graph visualization (steps 25–26)
 

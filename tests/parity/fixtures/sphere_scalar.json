@@ -1,0 +1,32 @@
+{
+  "input0": {
+    "shape": [],
+    "data": [
+      1.0
+    ]
+  },
+  "input1": {
+    "shape": [],
+    "data": [
+      1.0
+    ]
+  },
+  "output": {
+    "shape": [],
+    "data": [
+      2.0
+    ]
+  },
+  "grad0": {
+    "shape": [],
+    "data": [
+      2.0
+    ]
+  },
+  "grad1": {
+    "shape": [],
+    "data": [
+      2.0
+    ]
+  }
+}
