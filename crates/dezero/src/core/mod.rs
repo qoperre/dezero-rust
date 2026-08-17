@@ -8,4 +8,5 @@ pub mod backward;
 pub mod config;
 pub mod function;
 pub mod ops;
+pub mod parameter;
 pub mod variable;

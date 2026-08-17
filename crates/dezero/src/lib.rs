@@ -21,6 +21,15 @@
 //! * tensor shape manipulation — [`reshape`], [`transpose`] — and the
 //!   reductions [`sum`], [`sum_to`], [`broadcast_to`].
 //!
+//! On top of that, the neural-network layer of steps 41–48:
+//!
+//! * [`matmul`] and [`linear`], the activations [`sigmoid`], [`relu`],
+//!   [`softmax`], and the losses [`mean_squared_error`],
+//!   [`softmax_cross_entropy`];
+//! * [`Parameter`], [`Layer`] and [`Model`] — weights, the objects that own
+//!   them, and networks built by composing those;
+//! * [`Optimizer`] with [`Sgd`] and [`MomentumSgd`].
+//!
 //! # Example
 //!
 //! ```
@@ -92,21 +101,71 @@
 //! assert_eq!(y.shape(), Some(vec![2, 3]));
 //! assert_eq!(row.grad().and_then(|g| g.data()), Some(arr1(&[2.0, 2.0, 2.0]).into_dyn()));
 //! ```
+//!
+//! # Training a network
+//!
+//! [`Layer`] and [`Optimizer`] close the loop: a model owns [`Parameter`]s, a
+//! loss produces a gradient for each of them, and the optimizer moves them.
+//!
+//! ```
+//! use dezero::{mean_squared_error, seed, Layer, Mlp, Optimizer, Sgd, Variable};
+//! use ndarray::arr2;
+//!
+//! seed(0); // the weights are drawn at random; pin the stream to reproduce a run
+//!
+//! // y = 2x + 1, learned by a one-hidden-layer network.
+//! let x = Variable::new(arr2(&[[0.0], [1.0], [2.0], [3.0]]).into_dyn());
+//! let y = Variable::new(arr2(&[[1.0], [3.0], [5.0], [7.0]]).into_dyn());
+//!
+//! // Two Linear layers with a sigmoid between them, shaped by the first batch.
+//! let model = Mlp::new(&[10, 1]);
+//! let mut optimizer = Sgd::new(0.05);
+//! optimizer.setup(&model);
+//!
+//! let loss_now = |model: &Mlp| {
+//!     mean_squared_error(&model.forward(&x), &y).data().expect("loss").sum()
+//! };
+//! let before = loss_now(&model);
+//!
+//! for _ in 0..200 {
+//!     let loss = mean_squared_error(&model.forward(&x), &y);
+//!     model.cleargrads();  // backward accumulates, so clear first
+//!     loss.backward();
+//!     optimizer.update();
+//! }
+//!
+//! assert!(loss_now(&model) < before / 10.0, "the fit improves by an order of magnitude");
+//! ```
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 pub mod core;
 pub mod functions;
+pub mod layers;
+pub mod models;
+pub mod optim;
 pub mod utils;
 
 pub use crate::core::config::{ConfigGuard, enable_backprop, is_train, no_grad, test_mode};
 pub use crate::core::function::{Function, FunctionInner, Op, apply, apply1};
 pub use crate::core::ops::{Add, Div, Mul, Neg, Pow, Sub, add, div, mul, neg, pow, sub};
+pub use crate::core::parameter::Parameter;
 pub use crate::core::variable::{Variable, VariableInner};
+pub use crate::functions::activation::{
+    ReLU, Sigmoid, Softmax, relu, sigmoid, softmax, softmax_axis,
+};
 pub use crate::functions::basic_math::{Cos, Exp, Sin, Square, Tanh, cos, exp, sin, square, tanh};
+pub use crate::functions::loss::{
+    MeanSquaredError, SoftmaxCrossEntropy, mean_squared_error, softmax_cross_entropy,
+};
+pub use crate::functions::matmul::{MatMul, linear, matmul};
 pub use crate::functions::reduce::{
     Axes, BroadcastTo, Sum, SumTo, broadcast_to, sum, sum_all, sum_to,
 };
 pub use crate::functions::shape::{Reshape, Transpose, reshape, transpose};
+pub use crate::layers::{Layer, Linear};
+pub use crate::models::{Mlp, Model, Sequential};
+pub use crate::optim::{MomentumSgd, Optimizer, Sgd};
+pub use crate::utils::random::{Rng, randn, seed};
 pub use crate::utils::{GradientCheckError, GradientMismatch, gradient_check, numerical_diff};

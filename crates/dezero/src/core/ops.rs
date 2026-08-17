@@ -57,7 +57,11 @@ pub(crate) fn one<'a, T>(items: &'a [T], op: &str, role: &str) -> &'a T {
 }
 
 /// Destructures a slice expected to hold exactly two elements.
-fn two<'a, T>(items: &'a [T], op: &str, role: &str) -> (&'a T, &'a T) {
+///
+/// `pub(crate)` for the same reason [`one`] is: the binary ops in
+/// [`crate::functions`] share this wording rather than re-spelling the arity
+/// panic once per op.
+pub(crate) fn two<'a, T>(items: &'a [T], op: &str, role: &str) -> (&'a T, &'a T) {
     let [first, second] = items else {
         panic!("dezero: {op} expects exactly 2 {role}, got {}", items.len());
     };

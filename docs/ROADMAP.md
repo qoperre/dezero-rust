@@ -77,14 +77,14 @@ The hard part: backward must itself build a graph (`create_graph`).
 
 ## Phase 7 — Neural networks (steps 41–48)
 
-- ☐ 41 — `matmul`
-- ☐ 42 — linear regression
-- ☐ 43 — a hand-rolled neural net
-- ☐ 44 — `Parameter` / `Layer`
-- ☐ 45 — nested `Layer` → `Model`
-- ☐ 46 — `Optimizer` (SGD, Momentum)
-- ☐ 47 — softmax / cross-entropy
-- ☐ 48 — multi-class classification (spiral dataset)
+- ☑ 41 — `matmul`
+- ☑ 42 — linear regression
+- ☑ 43 — a hand-rolled neural net
+- ☑ 44 — `Parameter` / `Layer`
+- ☑ 45 — nested `Layer` → `Model`
+- ☑ 46 — `Optimizer` (SGD, Momentum)
+- ☑ 47 — softmax / cross-entropy
+- ☐ 48 — multi-class classification (spiral dataset) — deferred to land with `Dataset` in 49–50
 
 ## Phase 8 — Datasets & training loop (steps 49–52)
 

@@ -4,8 +4,14 @@
 //!   `vendor/dezero-python/dezero/utils.py` (`numerical_grad`,
 //!   `gradient_check`) and `steps/step04.py` (`numerical_diff`);
 //! * [`shape`] — the array-level shape arithmetic broadcasting is built from
-//!   (`sum_to`, `reshape_sum_backward`), also from `dezero/utils.py`.
+//!   (`sum_to`, `reshape_sum_backward`), also from `dezero/utils.py`;
+//! * [`array`](mod@array) — keepdims reductions, `logsumexp`, and the gather/scatter pair
+//!   that stands in for numpy's fancy indexing (steps 41–48);
+//! * [`random`] — a self-contained generator for weight initialisation, since
+//!   no Rust stream can reproduce numpy's.
 
+pub mod array;
+pub mod random;
 pub mod shape;
 
 use std::error::Error;
